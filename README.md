@@ -1,2 +1,6 @@
-# data
-Python data pipeline that processes and publishes static datasets for the Ghost Trees web application.
+# ghost-trees-data
+Data pipeline for Ghost Trees web application.
+
+## Contributing
+
+See [`contributing guide`](CONTRIBUTING.md) to get started.
