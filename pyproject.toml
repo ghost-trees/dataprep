@@ -3,11 +3,13 @@ name = "ghosttrees-dataprep"
 version = "0.1.0"
 description = "Data pipeline for Ghost Trees web application."
 readme = "README.md"
-requires-python = ">=3.14,<3.15"
+requires-python = ">=3.11,<3.15"
 dependencies = [
+    "geopy>=2,<3",
     "notebook>=7,<8",
     "pandas>=3,<4",
     "playwright>=1,<2",
+    "pydantic>=2,<3",
 ]
 
 [project.optional-dependencies]
@@ -17,7 +19,11 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths= ["tests"]
+testpaths = ["tests"]
 
 [tool.uv]
 package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
