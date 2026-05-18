@@ -3,6 +3,10 @@
 This project uses [`uv`](https://github.com/astral-sh/uv) for environment and dependency management.
 It is an application/data-pipeline repository, not a package intended for build/publish/install.
 
+## Documentation Standards
+
+- Documentation policy: [`docs_style.md`](docs_style.md)
+
 ## Prerequisites
 
 - Python 3.14
