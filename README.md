@@ -1,4 +1,4 @@
-# ghost-trees-data
+# Ghost Trees (ghost-trees/dataprep)
 Data pipeline for Ghost Trees web application.
 
 ## Contributing
