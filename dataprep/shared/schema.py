@@ -1,0 +1,23 @@
+"""Canonical dataset schema used across dataprep pipelines."""
+
+RECORD_NUMBER_COLUMN = "record_number"
+ADDRESS_COLUMN = "address"
+LATITUDE_COLUMN = "latitude"
+LONGITUDE_COLUMN = "longitude"
+PAID_COLUMN = "paid"
+OUTSTANDING_COLUMN = "outstanding"
+SCRAPE_STATUS_COLUMN = "scrape_status"
+
+GEOCODE_OUTPUT_COLUMNS = [
+    RECORD_NUMBER_COLUMN,
+    ADDRESS_COLUMN,
+    LATITUDE_COLUMN,
+    LONGITUDE_COLUMN,
+]
+
+FEE_OUTPUT_COLUMNS = [
+    RECORD_NUMBER_COLUMN,
+    PAID_COLUMN,
+    OUTSTANDING_COLUMN,
+    SCRAPE_STATUS_COLUMN,
+]

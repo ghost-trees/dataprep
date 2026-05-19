@@ -4,21 +4,15 @@ import multiprocessing as mp
 
 from playwright.sync_api import Page, TimeoutError, sync_playwright
 
+from dataprep.shared.portal import initialize_search
+
 from .constants import STATUS_FAILED, STATUS_SUCCESS
-from .portal import initialize_search, open_fees_page, scrape_fee_totals
+from .portal import open_fees_page, scrape_fee_totals
 from .types import FeeRow, WorkerResult
 
 
 def failed_result_row(record_number: str) -> FeeRow:
-    """Build a standardized failed result row.
-
-    Args:
-        record_number: Record identifier that failed to scrape.
-
-    Returns:
-        Row dictionary with zero fee values and failed status.
-    """
-
+    """Build a standardized failed result row."""
     return {
         "record_number": record_number,
         "paid": 0.0,
@@ -27,20 +21,8 @@ def failed_result_row(record_number: str) -> FeeRow:
     }
 
 
-def scrape_single_record(
-    page: Page, record_number: str, worker_id: int
-) -> WorkerResult:
-    """Scrape fees for one record and build a queue-ready result.
-
-    Args:
-        page: Worker-owned browser page instance.
-        record_number: Record identifier to scrape.
-        worker_id: Numeric worker identifier used for log messages.
-
-    Returns:
-        Tuple of `(row, success)` for aggregation by the parent process.
-    """
-
+def scrape_single_record(page: Page, record_number: str, worker_id: int) -> WorkerResult:
+    """Scrape fees for one record and build a queue-ready result."""
     print(f"[worker-{worker_id}] Scraping {record_number}...")
     paid = 0.0
     outstanding = 0.0
@@ -50,9 +32,7 @@ def scrape_single_record(
         try:
             frame = open_fees_page(page, record_number)
         except TimeoutError:
-            print(
-                f"[worker-{worker_id}] Search timed out, reinitializing and retrying..."
-            )
+            print(f"[worker-{worker_id}] Search timed out, reinitializing and retrying...")
             initialize_search(page)
             frame = open_fees_page(page, record_number)
         paid, outstanding = scrape_fee_totals(frame)
@@ -78,15 +58,7 @@ def worker_loop(
     record_queue: mp.Queue,
     result_queue: mp.Queue,
 ) -> None:
-    """Consume record IDs from a queue and emit scrape results.
-
-    Args:
-        worker_id: Numeric worker identifier used for logs.
-        headless: Whether Chromium launches in headless mode.
-        record_queue: Queue of record IDs, terminated by a `None` sentinel.
-        result_queue: Queue receiving `(row, success)` result tuples.
-    """
-
+    """Consume record IDs from a queue and emit scrape results."""
     print(f"[worker-{worker_id}] Worker online")
     try:
         with sync_playwright() as playwright:

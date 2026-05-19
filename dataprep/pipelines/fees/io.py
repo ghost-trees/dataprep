@@ -8,21 +8,14 @@ from .types import FeeRow
 
 
 def read_record_numbers(input_csv: Path, limit: int | None = None) -> list[str]:
-    """Read unique record numbers from the input CSV.
-
-    Args:
-        input_csv: Path to the input CSV containing a `Record Number` column.
-        limit: Optional maximum count of unique records to return.
-
-    Returns:
-        Ordered unique record numbers from the CSV.
-    """
-
+    """Read unique record numbers from the input CSV."""
     records: list[str] = []
     seen: set[str] = set()
     with input_csv.open(newline="", encoding="utf-8-sig") as file:
         for row in csv.DictReader(file):
-            record_number = (row.get("Record Number") or "").strip()
+            record_number = (
+                row.get("record_number") or row.get("Record Number") or ""
+            ).strip()
             if not record_number or record_number in seen:
                 continue
             seen.add(record_number)
@@ -33,18 +26,7 @@ def read_record_numbers(input_csv: Path, limit: int | None = None) -> list[str]:
 
 
 def read_existing_results(output_csv: Path) -> tuple[list[FeeRow], set[str], set[str]]:
-    """Read existing scrape results and split record statuses.
-
-    Args:
-        output_csv: Path to the results CSV from prior runs.
-
-    Returns:
-        A tuple of:
-            - Parsed existing rows.
-            - Record numbers with successful scrape status.
-            - Record numbers with failed scrape status.
-    """
-
+    """Read existing scrape results and split record statuses."""
     if not output_csv.exists():
         return [], set(), set()
 
@@ -58,9 +40,9 @@ def read_existing_results(output_csv: Path) -> tuple[list[FeeRow], set[str], set
             if not record_number or record_number in existing_records:
                 continue
             existing_records.add(record_number)
-            scrape_status = (
-                row.get("scrape_status") or STATUS_FAILED
-            ).strip().lower() or STATUS_FAILED
+            scrape_status = (row.get("scrape_status") or STATUS_FAILED).strip().lower()
+            if not scrape_status:
+                scrape_status = STATUS_FAILED
             if scrape_status == STATUS_SUCCESS:
                 success_records.add(record_number)
             else:
@@ -70,9 +52,7 @@ def read_existing_results(output_csv: Path) -> tuple[list[FeeRow], set[str], set
                 {
                     "record_number": record_number,
                     "paid": float((row.get("paid") or "0").strip() or "0"),
-                    "outstanding": float(
-                        (row.get("outstanding") or "0").strip() or "0"
-                    ),
+                    "outstanding": float((row.get("outstanding") or "0").strip() or "0"),
                     "scrape_status": scrape_status,
                 }
             )
@@ -84,20 +64,7 @@ def merge_rows_by_input_order(
     existing_rows: list[FeeRow],
     new_rows: list[FeeRow],
 ) -> list[FeeRow]:
-    """Merge existing and new rows while preserving input record order.
-
-    New rows replace existing rows for the same record number.
-
-    Args:
-        input_records: Ordered record numbers from current input.
-        existing_rows: Previously written output rows.
-        new_rows: Rows produced in the current run.
-
-    Returns:
-        A merged list of rows ordered by input records first, followed by any
-        historical rows not present in the current input.
-    """
-
+    """Merge existing and new rows while preserving input record order."""
     by_record: dict[str, FeeRow] = {}
     for row in existing_rows:
         by_record[str(row["record_number"])] = row
@@ -119,13 +86,8 @@ def merge_rows_by_input_order(
 
 
 def write_results(output_csv: Path, rows: list[FeeRow]) -> None:
-    """Write scrape result rows to the output CSV file.
-
-    Args:
-        output_csv: Destination CSV path.
-        rows: Result rows to write.
-    """
-
+    """Write scrape result rows to the output CSV file."""
+    output_csv.parent.mkdir(parents=True, exist_ok=True)
     with output_csv.open("w", newline="", encoding="utf-8") as file:
         writer = csv.DictWriter(
             file, fieldnames=["record_number", "paid", "outstanding", "scrape_status"]

@@ -3,23 +3,13 @@
 import argparse
 from pathlib import Path
 
+from dataprep.shared.paths import GEOCODED_RECORDS_PATH, SCRAPED_FEES_PATH
+
 from .pipeline import run
 
 
 def positive_int(value: str) -> int:
-    """Parse and validate a positive integer CLI argument.
-
-    Args:
-        value: Raw CLI string value.
-
-    Returns:
-        Parsed integer value.
-
-    Raises:
-        argparse.ArgumentTypeError: If the parsed value is less than 1.
-        ValueError: If the input cannot be parsed as an integer.
-    """
-
+    """Parse and validate a positive integer CLI argument."""
     parsed = int(value)
     if parsed < 1:
         raise argparse.ArgumentTypeError("Value must be >= 1.")
@@ -27,20 +17,13 @@ def positive_int(value: str) -> int:
 
 
 def parse_args() -> argparse.Namespace:
-    """Build and parse command-line arguments for fee scraping.
-
-    Returns:
-        Parsed argument namespace used by the pipeline entrypoint.
-    """
-
+    """Build and parse command-line arguments for fee scraping."""
     parser = argparse.ArgumentParser(
         description="Scrape paid/outstanding fees for records from geocoded_records.csv."
     )
-    parser.add_argument("--input", type=Path, default=Path("geocoded_records.csv"))
-    parser.add_argument("--output", type=Path, default=Path("fees_output.csv"))
-    parser.add_argument(
-        "--limit", type=int, default=None, help="Only scrape the first N records."
-    )
+    parser.add_argument("--input", type=Path, default=GEOCODED_RECORDS_PATH)
+    parser.add_argument("--output", type=Path, default=SCRAPED_FEES_PATH)
+    parser.add_argument("--limit", type=int, default=None, help="Only scrape the first N records.")
     parser.add_argument(
         "--workers",
         type=positive_int,
@@ -57,7 +40,6 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     """Run the fee scraping pipeline using parsed CLI arguments."""
-
     args = parse_args()
     run(
         input_csv=args.input,
@@ -66,3 +48,7 @@ def main() -> None:
         limit=args.limit,
         workers=args.workers,
     )
+
+
+if __name__ == "__main__":
+    main()

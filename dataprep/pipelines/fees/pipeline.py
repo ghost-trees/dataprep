@@ -3,6 +3,8 @@
 import multiprocessing as mp
 from pathlib import Path
 
+from dataprep.shared.paths import GEOCODED_RECORDS_PATH, SCRAPED_FEES_PATH
+
 from .io import (
     merge_rows_by_input_order,
     read_existing_results,
@@ -14,22 +16,13 @@ from .workers import worker_loop
 
 
 def run(
-    input_csv: Path, output_csv: Path, headless: bool, limit: int | None, workers: int
-) -> None:
-    """Run the end-to-end fee scraping workflow.
-
-    This function reads input records, skips already successful records, retries
-    prior failures, dispatches pending records to multiprocessing workers, and
-    writes merged results back to the output CSV in input order.
-
-    Args:
-        input_csv: Path to the CSV file containing source record numbers.
-        output_csv: Path to the CSV file used to read/write scrape results.
-        headless: Whether browser workers run in headless mode.
-        limit: Optional maximum number of input records to process.
-        workers: Maximum number of worker processes to launch.
-    """
-
+    input_csv: Path = GEOCODED_RECORDS_PATH,
+    output_csv: Path = SCRAPED_FEES_PATH,
+    headless: bool = True,
+    limit: int | None = None,
+    workers: int = 5,
+) -> Path:
+    """Run the end-to-end fee scraping workflow."""
     records = read_record_numbers(input_csv, limit=limit)
     existing_rows, success_records, failed_records = read_existing_results(output_csv)
     pending_records = [record for record in records if record not in success_records]
@@ -37,15 +30,13 @@ def run(
 
     print("Starting fee scrape")
     print(f"- Input records: {len(records)}")
-    print(
-        f"- Prior successful records (will skip): {len(success_records.intersection(records))}"
-    )
+    print(f"- Prior successful records (will skip): {len(success_records.intersection(records))}")
     print(f"- Prior failed records (will retry): {len(retry_records)}")
     print(f"- Pending scrape: {len(pending_records)}")
 
     if not pending_records:
         print("No pending records to scrape. Output already up to date.")
-        return
+        return output_csv
 
     new_results: list[FeeRow] = []
     scraped_count = 0
@@ -93,3 +84,4 @@ def run(
     print(f"- Failed this run: {failed_count}")
     print(f"- Total rows written: {len(merged_results)}")
     print(f"- Output file: {output_csv}")
+    return output_csv
