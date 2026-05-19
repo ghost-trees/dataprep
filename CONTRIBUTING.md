@@ -9,7 +9,7 @@ It is an application/data-pipeline repository, not a package intended for build/
 
 ## Prerequisites
 
-- Python 3.14
+- Python >=3.11,<3.15
 - `uv` installed (`pip install uv`)
 
 ## Set Up Local Environment
