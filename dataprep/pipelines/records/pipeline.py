@@ -60,6 +60,32 @@ def _assert_unique_record_numbers(csv_path: str | Path) -> None:
         )
 
 
+def _deduplicate_exact_rows(csv_path: str | Path) -> int:
+    csv_file_path = Path(csv_path)
+    with csv_file_path.open(newline="", encoding="utf-8") as csv_file:
+        reader = csv.DictReader(csv_file)
+        fieldnames = reader.fieldnames or []
+        rows = list(reader)
+
+    seen_rows: set[tuple[str, ...]] = set()
+    deduplicated_rows: list[dict[str, str]] = []
+    for row in rows:
+        row_key = tuple(row.get(column_name, "") for column_name in fieldnames)
+        if row_key in seen_rows:
+            continue
+        seen_rows.add(row_key)
+        deduplicated_rows.append(row)
+
+    removed_rows = len(rows) - len(deduplicated_rows)
+    if removed_rows > 0:
+        with csv_file_path.open("w", newline="", encoding="utf-8") as csv_file:
+            writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(deduplicated_rows)
+
+    return removed_rows
+
+
 def run(
     output_csv: Path = SCRAPED_RECORDS_PATH,
     permit_type: str = PERMIT_TYPE,
@@ -113,6 +139,7 @@ def run(
         download: Download = downloaded_data.value
         download.save_as(str(output_csv))
         _normalize_csv_headers_to_snake_case(output_csv)
+        _deduplicate_exact_rows(output_csv)
         _assert_unique_record_numbers(output_csv)
         return output_csv
     finally:
