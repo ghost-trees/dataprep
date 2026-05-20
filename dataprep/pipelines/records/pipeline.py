@@ -18,7 +18,7 @@ from dataprep.shared.portal import (
 PERMIT_TYPE = "Building/Arborist/Illegal Activity/NA"
 START_DATE_SELECTOR = "#ctl00_PlaceHolderMain_generalSearchForm_txtGSStartDate"
 END_DATE_SELECTOR = "#ctl00_PlaceHolderMain_generalSearchForm_txtGSEndDate"
-DEFAULT_START_DATE = "01/01/2025"
+DEFAULT_START_DATE = "01/01/2023"
 DEFAULT_END_DATE = "12/31/2025"
 
 
