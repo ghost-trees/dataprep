@@ -6,8 +6,10 @@ from pathlib import Path
 
 from dataprep.orchestrator import run_pipeline
 from dataprep.shared.paths import (
+    DATA_GEOJSON_PATH,
     GEOCODED_RECORDS_PATH,
     OUTPUT_PATH,
+    PARSED_TREES_PATH,
     SCRAPED_FEES_PATH,
     SCRAPED_RECORDS_PATH,
 )
@@ -27,7 +29,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--scraped-records", type=Path, default=SCRAPED_RECORDS_PATH)
     parser.add_argument("--geocoded-records", type=Path, default=GEOCODED_RECORDS_PATH)
     parser.add_argument("--scraped-fees", type=Path, default=SCRAPED_FEES_PATH)
+    parser.add_argument("--parsed-trees", type=Path, default=PARSED_TREES_PATH)
     parser.add_argument("--output", type=Path, default=OUTPUT_PATH)
+    parser.add_argument("--output-geojson", type=Path, default=DATA_GEOJSON_PATH)
     parser.add_argument("--geocode-workers", type=positive_int, default=1)
     parser.add_argument("--fee-workers", type=positive_int, default=5)
     parser.add_argument("--fees-limit", type=int, default=None)
@@ -44,7 +48,9 @@ def main() -> None:
             scraped_records_path=args.scraped_records,
             geocoded_records_path=args.geocoded_records,
             scraped_fees_path=args.scraped_fees,
+            parsed_trees_path=args.parsed_trees,
             output_path=args.output,
+            output_geojson_path=args.output_geojson,
             geocode_workers=args.geocode_workers,
             fee_workers=args.fee_workers,
             fees_headless=not args.fees_headed,

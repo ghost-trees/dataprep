@@ -1,4 +1,5 @@
 from dataprep.shared.paths import (
+    DATA_GEOJSON_PATH,
     DATA_DIR,
     GEOCODED_RECORDS_PATH,
     OUTPUT_PATH,
@@ -14,6 +15,7 @@ def test_default_outputs_are_under_data_dir() -> None:
     assert SCRAPED_FEES_PATH.parent == DATA_DIR
     assert PARSED_TREES_PATH.parent == DATA_DIR
     assert OUTPUT_PATH.parent == DATA_DIR
+    assert DATA_GEOJSON_PATH.parent == DATA_DIR
 
 
 def test_default_output_filenames_are_stable() -> None:
@@ -22,3 +24,4 @@ def test_default_output_filenames_are_stable() -> None:
     assert SCRAPED_FEES_PATH.name == "scraped_fees.csv"
     assert PARSED_TREES_PATH.name == "parsed_trees.csv"
     assert OUTPUT_PATH.name == "output.csv"
+    assert DATA_GEOJSON_PATH.name == "data.geojson"
