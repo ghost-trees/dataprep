@@ -17,8 +17,8 @@ SHORT_NOTES_COLUMN = "short_notes"
 TREE_TYPES_DELIMITER = "|"
 
 TREE_TYPE_ALIASES: dict[str, tuple[str, ...]] = {
-    "oak": ("oak", "water oak", "white oak", "red oak", "southern red oak", "post oak"),
-    "hardwood": ("hardwood", "HW"),
+    "oak": ("oak", "water oak", "white oak", "red oak", "southern red oak", "post oak", "willow oak", "willow"),
+    "hardwood": ("hardwood", "HW", "HWD"),
     "pine": ("pine", "pines", "PN"),
     "magnolia": ("magnolia",),
     "sweetgum": ("sweetgum", "sweet gum"),
@@ -30,7 +30,7 @@ TREE_TYPE_ALIASES: dict[str, tuple[str, ...]] = {
     "cherry": ("cherry", "black cherry", "flowering cherry", "native cherry"),
     "dogwood": ("dogwood", "kousa dogwood"),
     "holly": ("holly", "american holly", "chinese holly"),
-    "crape myrtle": ("crape myrtle", "crepe myrtle"),
+    "crape myrtle": ("crape myrtle", "crepe myrtle", "myrtle"),
     "elm": ("elm",),
     "birch": ("birch", "river birch"),
     "hemlock": ("hemlock",),
@@ -43,11 +43,30 @@ TREE_TYPE_ALIASES: dict[str, tuple[str, ...]] = {
     "sourwood": ("sourwood",),
     "sycamore": ("sycamore",),
     "bois darc": ("bois darc", "bois d'arc"),
+    "ailanthus": ("ailanthus",),
+    "walnut": ("walnut", "black walnut"),
+    "mimosa": ("mimosa",),
+    "catalpa": ("catalpa",),
+    "mulberry": ("mulberry", "white mulberry", "paper mulberry"),
+    "ash": ("ash",),
+}
+
+TOKEN_ABBREVIATIONS: dict[str, str] = {
+    "hw": "hardwood",
+    "hwd": "hardwood",
+    "pn": "pine",
 }
 
 
-def _normalize_text_for_matching(value: object) -> list[str]:
-    """Normalize free text into lowercase tokens used for keyword matching."""
+def _tokenize_text(value: object) -> list[str]:
+    """Tokenize free text into normalized lowercase words.
+
+    Args:
+        value: Free-text source value.
+
+    Returns:
+        Ordered lowercase tokens stripped of punctuation.
+    """
     if pd.isna(value):
         return []
     text = str(value).lower().replace("’", "").replace("'", "")
@@ -59,16 +78,62 @@ def _normalize_text_for_matching(value: object) -> list[str]:
 
 
 def _build_alias_token_index() -> dict[str, tuple[tuple[str, ...], ...]]:
-    """Compile alias strings into normalized token tuples keyed by tree type."""
+    """Compile alias strings into normalized token tuples keyed by tree type.
+
+    Returns:
+        Mapping from normalized tree type label to alias token tuples.
+    """
     alias_token_index: dict[str, tuple[tuple[str, ...], ...]] = {}
     for normalized_name, aliases in TREE_TYPE_ALIASES.items():
-        alias_token_index[normalized_name] = tuple(
-            tuple(_normalize_text_for_matching(alias)) for alias in aliases
-        )
+        alias_token_index[normalized_name] = tuple(tuple(_tokenize_text(alias)) for alias in aliases)
     return alias_token_index
 
 
 ALIAS_TOKEN_INDEX = _build_alias_token_index()
+ALIAS_VOCABULARY: set[str] = {
+    token
+    for aliases in ALIAS_TOKEN_INDEX.values()
+    for alias_tokens in aliases
+    for token in alias_tokens
+}
+
+
+def _normalize_token_for_matching(token: str) -> str:
+    """Normalize one token for matching against alias vocabulary.
+
+    Args:
+        token: Lowercase token from free-text input.
+
+    Returns:
+        Token rewritten with abbreviation and conservative plural normalization.
+    """
+    normalized_token = TOKEN_ABBREVIATIONS.get(token, token)
+    if normalized_token in ALIAS_VOCABULARY:
+        return normalized_token
+
+    if normalized_token.endswith("ies"):
+        singular_candidate = f"{normalized_token[:-3]}y"
+        if singular_candidate in ALIAS_VOCABULARY:
+            return singular_candidate
+
+    if normalized_token.endswith("s") and not normalized_token.endswith("ss"):
+        singular_candidate = normalized_token[:-1]
+        if singular_candidate in ALIAS_VOCABULARY:
+            return singular_candidate
+
+    return normalized_token
+
+
+def _normalize_text_for_matching(value: object) -> list[str]:
+    """Normalize free text into keyword-matching tokens.
+
+    Args:
+        value: Source text value from description/notes fields.
+
+    Returns:
+        Ordered tokens with abbreviation and plural normalization applied.
+    """
+    return [_normalize_token_for_matching(token) for token in _tokenize_text(value)]
 
 
 def _contains_phrase(tokens: list[str], phrase_tokens: tuple[str, ...]) -> bool:

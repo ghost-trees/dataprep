@@ -24,6 +24,38 @@ def test_extract_tree_types_handles_variants_and_misspelling_aliases() -> None:
     assert matched == ["sweetgum", "poplar", "ginkgo", "bois darc"]
 
 
+def test_extract_tree_types_matches_new_species_aliases() -> None:
+    matched = parse_trees_pipeline.extract_tree_types(
+        "Removed one black walnut, one ailanthus, and one mimosa.",
+        "Also removed one catalpa, paper mulberry, and one ash.",
+    )
+
+    assert matched == ["ailanthus", "walnut", "mimosa", "catalpa", "mulberry", "ash"]
+
+
+def test_extract_tree_types_normalizes_plural_tokens_and_hwd_abbreviation() -> None:
+    matched = parse_trees_pipeline.extract_tree_types(
+        "Removed oaks, hickories, maples, cherries, myrtles, and one HWD specimen.",
+        None,
+    )
+
+    assert matched == ["oak", "hardwood", "hickory", "maple", "cherry", "crape myrtle"]
+
+
+def test_extract_tree_types_matches_willow_oak_but_not_standalone_willow() -> None:
+    matched_willow_oak = parse_trees_pipeline.extract_tree_types(
+        'Removed one 12" willow oak from front yard.',
+        None,
+    )
+    matched_standalone_willow = parse_trees_pipeline.extract_tree_types(
+        'Removed one 12" willow from front yard.',
+        None,
+    )
+
+    assert matched_willow_oak == ["oak"]
+    assert matched_standalone_willow == []
+
+
 def test_extract_tree_types_returns_empty_when_no_match() -> None:
     matched = parse_trees_pipeline.extract_tree_types(
         "Fence repair and driveway resurfacing only.",
