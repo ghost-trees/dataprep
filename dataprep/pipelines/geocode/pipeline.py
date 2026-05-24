@@ -19,6 +19,10 @@ from dataprep.shared.schema import (
 )
 
 
+GeocodeResult = tuple[float | None, float | None, str | None]
+ExistingGeocode = tuple[str | None, float, float, str | None]
+
+
 def _build_geocode_failure_error(exc: Exception, *, context: str) -> RuntimeError:
     """Build a fail-fast runtime error with actionable geocoder guidance."""
     message = str(exc)
@@ -39,6 +43,15 @@ def _build_geocode_failure_error(exc: Exception, *, context: str) -> RuntimeErro
     error = RuntimeError(f"Geocoding failed during {context}: {message}. {hint}")
     error.__cause__ = exc
     return error
+
+
+def _addresses_match(left: object, right: object) -> bool:
+    """Return True when two address values should be treated as equivalent."""
+    if pd.isna(left) and pd.isna(right):
+        return True
+    if pd.isna(left) or pd.isna(right):
+        return False
+    return str(left) == str(right)
 
 
 def build_geocode_callable():
@@ -118,7 +131,7 @@ def worker_loop(worker_id: int, address_queue: mp.Queue, result_queue: mp.Queue)
 def geocode_in_parallel(
     addresses: list[object],
     workers: int,
-) -> tuple[list[tuple[float | None, float | None, str | None]], int]:
+) -> tuple[list[GeocodeResult], int]:
     """Geocode address values with worker multiprocessing."""
     total_records = len(addresses)
     if total_records == 0:
@@ -142,9 +155,7 @@ def geocode_in_parallel(
         process.start()
         processes.append(process)
 
-    geocoded_results: list[tuple[float | None, float | None, str | None]] = [
-        (None, None, None)
-    ] * total_records
+    geocoded_results: list[GeocodeResult] = [(None, None, None)] * total_records
     geocoded_count = 0
     for completed in range(1, total_records + 1):
         message_type, row_index, latitude, longitude, geocoded_address, success, error_message = (
@@ -172,12 +183,79 @@ def geocode_in_parallel(
     return geocoded_results, geocoded_count
 
 
+def read_existing_successful_geocodes(output_csv_path: Path) -> dict[str, ExistingGeocode]:
+    """Read prior successful geocode rows keyed by record number.
+
+    Args:
+        output_csv_path: Path to the existing geocoded output CSV.
+
+    Returns:
+        Mapping of record number to reusable geocode data:
+        `(address, latitude, longitude, geocoded_address)`.
+
+    Raises:
+        ValueError: If an existing output file is missing required columns.
+    """
+    if not output_csv_path.exists():
+        return {}
+
+    existing_df = pd.read_csv(output_csv_path)
+    required_columns = [
+        RECORD_NUMBER_COLUMN,
+        ADDRESS_COLUMN,
+        LATITUDE_COLUMN,
+        LONGITUDE_COLUMN,
+        GEOCODED_ADDRESS_COLUMN,
+    ]
+    missing_columns = [column for column in required_columns if column not in existing_df.columns]
+    if missing_columns:
+        raise ValueError(
+            f"Expected columns {required_columns} in {output_csv_path}, "
+            f"but missing: {missing_columns}. Found: {list(existing_df.columns)}"
+        )
+
+    successful_by_record: dict[str, ExistingGeocode] = {}
+    for row in existing_df.itertuples(index=False):
+        record_number = getattr(row, RECORD_NUMBER_COLUMN)
+        latitude = getattr(row, LATITUDE_COLUMN)
+        longitude = getattr(row, LONGITUDE_COLUMN)
+        if pd.isna(record_number) or pd.isna(latitude) or pd.isna(longitude):
+            continue
+        successful_by_record[str(record_number)] = (
+            getattr(row, ADDRESS_COLUMN),
+            float(latitude),
+            float(longitude),
+            getattr(row, GEOCODED_ADDRESS_COLUMN),
+        )
+    return successful_by_record
+
+
 def run(
     input_csv_path: Path = SCRAPED_RECORDS_PATH,
     output_csv_path: Path = GEOCODED_RECORDS_PATH,
     workers: int = 1,
+    redo_all: bool = False,
 ) -> pd.DataFrame:
-    """Geocode addresses from scraped records and write output CSV."""
+    """Geocode addresses from scraped records and write output CSV.
+
+    The pipeline writes geocode output to disk and calls the external Nominatim
+    service for pending addresses. By default, it reuses prior successful
+    geocode rows from an existing output file when record number and address
+    are unchanged. Use `redo_all=True` to force a full rerun.
+
+    Args:
+        input_csv_path: Source CSV path containing record numbers and addresses.
+        output_csv_path: Destination CSV path for geocode output.
+        workers: Maximum worker process count for parallel geocoding.
+        redo_all: When True, geocode all records regardless of prior output.
+
+    Returns:
+        DataFrame containing geocode output columns in input order.
+
+    Raises:
+        ValueError: If input or existing output columns are missing.
+        RuntimeError: If geocoding workers fail due to geocoder connectivity.
+    """
     df = pd.read_csv(input_csv_path)
 
     required_columns = [RECORD_NUMBER_COLUMN, ADDRESS_COLUMN]
@@ -190,9 +268,51 @@ def run(
 
     total_records = len(df)
     print(f"Starting geocoding for {total_records} records...")
-    addresses = df[ADDRESS_COLUMN].tolist()
-    preflight_geocode_check(addresses)
-    geocoded_results, geocoded_count = geocode_in_parallel(addresses, workers)
+
+    existing_successful = read_existing_successful_geocodes(output_csv_path)
+
+    geocoded_results: list[GeocodeResult] = [(None, None, None)] * total_records
+    pending_indices: list[int] = []
+    pending_addresses: list[object] = []
+    skipped_count = 0
+    reprocess_due_to_address_change = 0
+
+    for row_index, row in enumerate(df.itertuples(index=False)):
+        record_number = getattr(row, RECORD_NUMBER_COLUMN)
+        current_address = getattr(row, ADDRESS_COLUMN)
+        record_key = "" if pd.isna(record_number) else str(record_number)
+        existing = existing_successful.get(record_key)
+
+        should_reuse = False
+        if not redo_all and existing is not None:
+            existing_address = existing[0]
+            if _addresses_match(current_address, existing_address):
+                should_reuse = True
+            else:
+                reprocess_due_to_address_change += 1
+
+        if should_reuse:
+            _, latitude, longitude, geocoded_address = existing
+            geocoded_results[row_index] = (latitude, longitude, geocoded_address)
+            skipped_count += 1
+        else:
+            pending_indices.append(row_index)
+            pending_addresses.append(current_address)
+
+    pending_count = len(pending_addresses)
+    print(f"Prior successful rows reused: {skipped_count}")
+    print(f"Rows pending geocode this run: {pending_count}")
+    if reprocess_due_to_address_change:
+        print(f"Rows re-geocoded due to address changes: {reprocess_due_to_address_change}")
+
+    geocoded_count = 0
+    if pending_count:
+        preflight_geocode_check(pending_addresses)
+        pending_results, geocoded_count = geocode_in_parallel(pending_addresses, workers)
+        for pending_index, result in zip(pending_indices, pending_results, strict=True):
+            geocoded_results[pending_index] = result
+    else:
+        print("No pending rows to geocode. Output already up to date.")
 
     df[LATITUDE_COLUMN] = [row[0] for row in geocoded_results]
     df[LONGITUDE_COLUMN] = [row[1] for row in geocoded_results]
@@ -202,8 +322,15 @@ def run(
     output_csv_path.parent.mkdir(parents=True, exist_ok=True)
     output_df.to_csv(output_csv_path, index=False)
 
-    print(
-        f"Finished geocoding. Total: {total_records}, "
-        f"Geocoded: {geocoded_count}, Not geocoded: {total_records - geocoded_count}"
+    total_success = sum(
+        1 for latitude, longitude, _ in geocoded_results if latitude is not None and longitude is not None
     )
+    failed_this_run = pending_count - geocoded_count
+
+    print(f"Finished geocoding. Total input: {total_records}")
+    print(f"- Reused prior success: {skipped_count}")
+    print(f"- Re-geocoded due to address changes: {reprocess_due_to_address_change}")
+    print(f"- Geocoded this run: {geocoded_count}")
+    print(f"- Not geocoded this run: {failed_this_run}")
+    print(f"- Total successfully geocoded in output: {total_success}")
     return output_df
