@@ -35,6 +35,7 @@ RECORD_TYPE_COLUMN = "record_type"
 PERMIT_NAME_COLUMN = "permit_name"
 STATUS_COLUMN = "status"
 DESCRIPTION_COLUMN = "description"
+TREE_TYPES_DELIMITER = "|"
 
 
 def _validate_required_columns(df: pd.DataFrame, required_columns: list[str], source_name: str) -> None:
@@ -72,6 +73,19 @@ def _to_json_value(value: object) -> object:
     return value
 
 
+def _tree_types_to_array(value: object) -> list[str]:
+    """Convert stored tree-types value to an array for GeoJSON output."""
+    normalized_value = _to_json_value(value)
+    if normalized_value is None:
+        return []
+
+    text = str(normalized_value).strip()
+    if not text:
+        return []
+
+    return [part.strip() for part in text.split(TREE_TYPES_DELIMITER) if part.strip()]
+
+
 def _build_feature_collection(merged_df: pd.DataFrame) -> dict[str, object]:
     """Build a GeoJSON FeatureCollection from a merged DataFrame.
 
@@ -102,8 +116,8 @@ def _build_feature_collection(merged_df: pd.DataFrame) -> dict[str, object]:
                 "description": _to_json_value(getattr(row, DESCRIPTION_COLUMN)),
                 "paid": _to_json_value(getattr(row, PAID_COLUMN)),
                 "outstanding": _to_json_value(getattr(row, OUTSTANDING_COLUMN)),
-                "tree_types": _to_json_value(getattr(row, TREE_TYPES_COLUMN)),
-                "geocoded_address": _to_json_value(getattr(row, GEOCODED_ADDRESS_COLUMN)),
+                "tree_types": _tree_types_to_array(getattr(row, TREE_TYPES_COLUMN)),
+                "address": _to_json_value(getattr(row, GEOCODED_ADDRESS_COLUMN)),
             },
         }
         features.append(feature)

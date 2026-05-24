@@ -69,9 +69,10 @@ def test_run_writes_feature_collection_with_expected_mapping(tmp_path: Path) -> 
         "description": "Removed two trees",
         "paid": 150.0,
         "outstanding": 25.0,
-        "tree_types": "hardwood|pine",
-        "geocoded_address": "123 Main St, Atlanta, GA",
+        "tree_types": ["hardwood", "pine"],
+        "address": "123 Main St, Atlanta, GA",
     }
+    assert "geocoded_address" not in feature["properties"]
 
 
 def test_run_emits_warning_and_uses_nulls_for_missing_fee_rows(tmp_path: Path) -> None:
@@ -131,6 +132,10 @@ def test_run_emits_warning_and_uses_nulls_for_missing_fee_rows(tmp_path: Path) -
     feature_by_id = {feature["id"]: feature for feature in payload["features"]}
     assert feature_by_id["R2"]["properties"]["paid"] is None
     assert feature_by_id["R2"]["properties"]["outstanding"] is None
+    assert feature_by_id["R1"]["properties"]["tree_types"] == ["oak"]
+    assert feature_by_id["R2"]["properties"]["tree_types"] == []
+    assert feature_by_id["R1"]["properties"]["address"] == "Addr 1"
+    assert "geocoded_address" not in feature_by_id["R1"]["properties"]
 
 
 def test_run_raises_when_required_columns_are_missing(tmp_path: Path) -> None:
