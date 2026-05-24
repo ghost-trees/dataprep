@@ -42,7 +42,7 @@ def test_extract_tree_types_normalizes_plural_tokens_and_hwd_abbreviation() -> N
     assert matched == ["oak", "hardwood", "hickory", "maple", "cherry", "crape myrtle"]
 
 
-def test_extract_tree_types_matches_willow_oak_but_not_standalone_willow() -> None:
+def test_extract_tree_types_matches_willow_oak_and_standalone_willow() -> None:
     matched_willow_oak = parse_trees_pipeline.extract_tree_types(
         'Removed one 12" willow oak from front yard.',
         None,
@@ -53,7 +53,7 @@ def test_extract_tree_types_matches_willow_oak_but_not_standalone_willow() -> No
     )
 
     assert matched_willow_oak == ["oak"]
-    assert matched_standalone_willow == []
+    assert matched_standalone_willow == ["oak"]
 
 
 def test_extract_tree_types_returns_empty_when_no_match() -> None:
