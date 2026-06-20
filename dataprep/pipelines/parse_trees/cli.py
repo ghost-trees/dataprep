@@ -8,6 +8,13 @@ from dataprep.shared.db import DEFAULT_DB_PATH
 from .pipeline import run
 
 
+class _HelpFormatter(
+    argparse.ArgumentDefaultsHelpFormatter,
+    argparse.RawDescriptionHelpFormatter,
+):
+    """Render defaults and preserve multiline examples in help output."""
+
+
 def parse_args() -> argparse.Namespace:
     """Build and parse command-line arguments for parse-trees extraction.
 
@@ -15,9 +22,24 @@ def parse_args() -> argparse.Namespace:
         Parsed CLI arguments containing the database path.
     """
     parser = argparse.ArgumentParser(
-        description="Parse and normalize tree types from the scraped_records table text fields."
+        description=(
+            "Parse and normalize tree mentions from scraped_records text fields "
+            "and write results to the parsed_trees SQLite table."
+        ),
+        epilog=(
+            "Quickstart examples:\n"
+            "  uv run python -m dataprep.pipelines.parse_trees.cli\n"
+            "  uv run python -m dataprep.pipelines.parse_trees.cli --db "
+            "data/dataprep.sqlite3"
+        ),
+        formatter_class=_HelpFormatter,
     )
-    parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
+    parser.add_argument(
+        "--db",
+        type=Path,
+        default=DEFAULT_DB_PATH,
+        help="Path to the SQLite database file.",
+    )
     return parser.parse_args()
 
 

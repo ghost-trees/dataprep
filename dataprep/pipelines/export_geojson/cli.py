@@ -10,17 +10,53 @@ from dataprep.shared.paths import DATA_GEOJSON_PATH
 from .pipeline import run
 
 
+class _HelpFormatter(
+    argparse.ArgumentDefaultsHelpFormatter,
+    argparse.RawDescriptionHelpFormatter,
+):
+    """Render defaults and preserve multiline examples in help output."""
+
+
 def parse_args() -> argparse.Namespace:
     """Build and parse command-line arguments for GeoJSON export.
 
     Returns:
         Parsed CLI arguments for the database, output path, and date window.
     """
-    parser = argparse.ArgumentParser(description="Build data.geojson from the SQLite database.")
-    parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
-    parser.add_argument("--output", type=Path, default=DATA_GEOJSON_PATH)
-    parser.add_argument("--start", default=CSV_EXPORT_START, help="Inclusive ISO window start.")
-    parser.add_argument("--end", default=CSV_EXPORT_END, help="Inclusive ISO window end.")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Build data.geojson from SQLite output records filtered to a date window."
+        ),
+        epilog=(
+            "Quickstart examples:\n"
+            "  uv run python -m dataprep.pipelines.export_geojson.cli\n"
+            "  uv run python -m dataprep.pipelines.export_geojson.cli --output "
+            "data/custom.geojson --start 2024-01-01 --end 2024-12-31"
+        ),
+        formatter_class=_HelpFormatter,
+    )
+    parser.add_argument(
+        "--db",
+        type=Path,
+        default=DEFAULT_DB_PATH,
+        help="Path to the SQLite database file.",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=DATA_GEOJSON_PATH,
+        help="Destination path for the GeoJSON file.",
+    )
+    parser.add_argument(
+        "--start",
+        default=CSV_EXPORT_START,
+        help="Inclusive ISO window start date (YYYY-MM-DD).",
+    )
+    parser.add_argument(
+        "--end",
+        default=CSV_EXPORT_END,
+        help="Inclusive ISO window end date (YYYY-MM-DD).",
+    )
     return parser.parse_args()
 
 

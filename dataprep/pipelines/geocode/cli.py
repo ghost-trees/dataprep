@@ -8,6 +8,13 @@ from dataprep.shared.db import DEFAULT_DB_PATH
 from .pipeline import run
 
 
+class _HelpFormatter(
+    argparse.ArgumentDefaultsHelpFormatter,
+    argparse.RawDescriptionHelpFormatter,
+):
+    """Render defaults and preserve multiline examples in help output."""
+
+
 def positive_int(value: str) -> int:
     """Parse and validate a positive integer CLI argument."""
     parsed = int(value)
@@ -24,21 +31,35 @@ def parse_args() -> argparse.Namespace:
         whether to force a full rerun.
     """
     parser = argparse.ArgumentParser(
-        description="Geocode record addresses from the scraped_records table."
+        description=(
+            "Geocode addresses from scraped_records and write/upsert rows into "
+            "the geocoded_records SQLite table."
+        ),
+        epilog=(
+            "Quickstart examples:\n"
+            "  uv run python -m dataprep.pipelines.geocode.cli\n"
+            "  uv run python -m dataprep.pipelines.geocode.cli --workers 4 --redo-all"
+        ),
+        formatter_class=_HelpFormatter,
     )
-    parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
+    parser.add_argument(
+        "--db",
+        type=Path,
+        default=DEFAULT_DB_PATH,
+        help="Path to the SQLite database file.",
+    )
     parser.add_argument(
         "--workers",
         type=positive_int,
         default=1,
-        help="Number of parallel worker processes (default: 1).",
+        help="Number of parallel worker processes to run.",
     )
     parser.add_argument(
         "--redo-all",
         action="store_true",
         help=(
-            "Redo geocoding for every input record. By default, previously "
-            "successful rows are reused when record_number and address are unchanged."
+            "Re-geocode every eligible input row. By default, successful prior "
+            "results are reused when record_number and address are unchanged."
         ),
     )
     return parser.parse_args()
