@@ -1,9 +1,10 @@
 from pathlib import Path
 
-import pandas as pd
 import pytest
+from db_helpers import seed_table
 
 from dataprep.pipelines.parse_trees import pipeline as parse_trees_pipeline
+from dataprep.shared.schema import SCRAPED_RECORDS_TABLE
 
 
 def test_extract_tree_types_matches_multiple_aliases() -> None:
@@ -66,34 +67,40 @@ def test_extract_tree_types_returns_empty_when_no_match() -> None:
 
 
 def test_run_raises_when_required_columns_are_missing(tmp_path: Path) -> None:
-    input_csv = tmp_path / "input.csv"
-    output_csv = tmp_path / "output.csv"
-    pd.DataFrame({"record_number": ["R1"], "description": ["Oak tree"]}).to_csv(input_csv, index=False)
+    db_path = tmp_path / "dataprep.sqlite3"
+    seed_table(
+        db_path, SCRAPED_RECORDS_TABLE, [{"record_number": "R1", "description": "Oak tree"}]
+    )
 
     with pytest.raises(ValueError, match="Expected columns"):
-        parse_trees_pipeline.run(input_csv_path=input_csv, output_csv_path=output_csv)
+        parse_trees_pipeline.run(db_path=db_path)
 
 
 def test_run_writes_expected_columns_and_normalized_values(tmp_path: Path) -> None:
-    input_csv = tmp_path / "scraped_records.csv"
-    output_csv = tmp_path / "parsed_trees.csv"
-    pd.DataFrame(
-        {
-            "record_number": ["R1", "R2", "R3"],
-            "description": [
-                'Illegal removal: 16" HW and 20" PN.',
-                "Removed 31 Magnolia tree and one sweet gum.",
-                "No tree mention present.",
-            ],
-            "short_notes": [
-                "",
-                "Also noted leland cypress",
-                "",
-            ],
-        }
-    ).to_csv(input_csv, index=False)
+    db_path = tmp_path / "dataprep.sqlite3"
+    seed_table(
+        db_path,
+        SCRAPED_RECORDS_TABLE,
+        [
+            {
+                "record_number": "R1",
+                "description": 'Illegal removal: 16" HW and 20" PN.',
+                "short_notes": "",
+            },
+            {
+                "record_number": "R2",
+                "description": "Removed 31 Magnolia tree and one sweet gum.",
+                "short_notes": "Also noted leland cypress",
+            },
+            {
+                "record_number": "R3",
+                "description": "No tree mention present.",
+                "short_notes": "",
+            },
+        ],
+    )
 
-    result_df = parse_trees_pipeline.run(input_csv_path=input_csv, output_csv_path=output_csv)
+    result_df = parse_trees_pipeline.run(db_path=db_path)
 
     assert list(result_df.columns) == ["record_number", "tree_types"]
     assert result_df["tree_types"].tolist() == [
@@ -101,4 +108,3 @@ def test_run_writes_expected_columns_and_normalized_values(tmp_path: Path) -> No
         "magnolia|sweetgum|cypress",
         "",
     ]
-    assert output_csv.exists()

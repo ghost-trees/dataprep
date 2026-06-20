@@ -1,6 +1,7 @@
 from dataprep.shared.paths import (
     DATA_GEOJSON_PATH,
     DATA_DIR,
+    DB_PATH,
     GEOCODED_RECORDS_PATH,
     OUTPUT_PATH,
     PARSED_TREES_PATH,
@@ -10,6 +11,7 @@ from dataprep.shared.paths import (
 
 
 def test_default_outputs_are_under_data_dir() -> None:
+    assert DB_PATH.parent == DATA_DIR
     assert SCRAPED_RECORDS_PATH.parent == DATA_DIR
     assert GEOCODED_RECORDS_PATH.parent == DATA_DIR
     assert SCRAPED_FEES_PATH.parent == DATA_DIR
@@ -19,6 +21,7 @@ def test_default_outputs_are_under_data_dir() -> None:
 
 
 def test_default_output_filenames_are_stable() -> None:
+    assert DB_PATH.name == "dataprep.sqlite3"
     assert SCRAPED_RECORDS_PATH.name == "scraped_records.csv"
     assert GEOCODED_RECORDS_PATH.name == "geocoded_records.csv"
     assert SCRAPED_FEES_PATH.name == "scraped_fees.csv"

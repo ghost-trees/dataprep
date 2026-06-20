@@ -1,83 +1,85 @@
 from pathlib import Path
 
-import pandas as pd
+from db_helpers import read_table_df, seed_table
 
 from dataprep import orchestrator
+from dataprep.shared.schema import (
+    GEOCODED_RECORDS_TABLE,
+    OUTPUT_TABLE,
+    PARSED_TREES_TABLE,
+    SCRAPED_FEES_TABLE,
+    SCRAPED_RECORDS_TABLE,
+)
 
 
 def test_run_pipeline_executes_stages_in_order_and_writes_output(
     tmp_path: Path, monkeypatch
 ) -> None:
-    records_path = tmp_path / "scraped_records.csv"
-    geocoded_path = tmp_path / "geocoded_records.csv"
-    fees_path = tmp_path / "scraped_fees.csv"
-    parsed_trees_output_path = tmp_path / "parsed_trees.csv"
-    output_path = tmp_path / "output.csv"
+    db_path = tmp_path / "dataprep.sqlite3"
     output_geojson_path = tmp_path / "data.geojson"
     call_order: list[str] = []
 
-    def fake_run_records(output_csv: Path, headless: bool) -> Path:
+    def fake_run_records(db_path: Path, headless: bool) -> Path:
         call_order.append("records")
-        pd.DataFrame(
-            {
-                "record_number": ["R1"],
-                "address": ["123 Main"],
-                "status": ["Open"],
-            }
-        ).to_csv(output_csv, index=False)
-        return output_csv
+        seed_table(
+            db_path,
+            SCRAPED_RECORDS_TABLE,
+            [
+                {
+                    "record_number": "R1",
+                    "address": "123 Main",
+                    "status": "Open",
+                    "date": "05/01/2026",
+                    "date_iso": "2026-05-01",
+                }
+            ],
+        )
+        return db_path
 
-    def fake_run_geocode(input_csv_path: Path, output_csv_path: Path, workers: int):
-        call_order.append("geocode")
-        assert input_csv_path == records_path
-        pd.DataFrame(
-            {
-                "record_number": ["R1"],
-                "address": ["123 Main"],
-                "latitude": [33.1],
-                "longitude": [-84.1],
-            }
-        ).to_csv(output_csv_path, index=False)
-        return pd.read_csv(output_csv_path)
-
-    def fake_run_parse_trees(input_csv_path: Path, output_csv_path: Path) -> pd.DataFrame:
+    def fake_run_parse_trees(db_path: Path):
         call_order.append("parse_trees")
-        assert input_csv_path == records_path
-        tree_df = pd.DataFrame({"record_number": ["R1"], "tree_types": ["oak"]})
-        tree_df.to_csv(output_csv_path, index=False)
-        return tree_df
+        seed_table(db_path, PARSED_TREES_TABLE, [{"record_number": "R1", "tree_types": "oak"}])
 
-    def fake_run_fees(
-        input_csv: Path,
-        output_csv: Path,
-        headless: bool,
-        limit: int | None,
-        workers: int,
-    ) -> Path:
+    def fake_run_geocode(db_path: Path, workers: int):
+        call_order.append("geocode")
+        seed_table(
+            db_path,
+            GEOCODED_RECORDS_TABLE,
+            [
+                {
+                    "record_number": "R1",
+                    "address": "123 Main",
+                    "latitude": 33.1,
+                    "longitude": -84.1,
+                    "geocoded_address": "123 Main St, Atlanta, GA",
+                }
+            ],
+        )
+
+    def fake_run_fees(db_path: Path, headless: bool, limit: int | None, workers: int) -> Path:
         call_order.append("fees")
-        assert input_csv == geocoded_path
-        pd.DataFrame(
-            {
-                "record_number": ["R1"],
-                "paid": [10.0],
-                "outstanding": [0.0],
-                "scrape_status": ["success"],
-            }
-        ).to_csv(output_csv, index=False)
-        return output_csv
+        seed_table(
+            db_path,
+            SCRAPED_FEES_TABLE,
+            [
+                {
+                    "record_number": "R1",
+                    "paid": 10.0,
+                    "outstanding": 0.0,
+                    "scrape_status": "success",
+                }
+            ],
+        )
+        return db_path
+
+    def fake_run_export_csv(db_path: Path, start: str, end: str) -> list[Path]:
+        call_order.append("export_csv")
+        return []
 
     def fake_run_export_geojson(
-        scraped_records_path: Path,
-        geocoded_records_path: Path,
-        scraped_fees_path: Path,
-        parsed_trees_path: Path,
-        output_geojson_path: Path,
+        db_path: Path, output_geojson_path: Path, start: str, end: str
     ) -> Path:
         call_order.append("export_geojson")
-        assert scraped_records_path == records_path
-        assert geocoded_records_path == geocoded_path
-        assert scraped_fees_path == fees_path
-        assert parsed_trees_path == parsed_trees_output_path
         output_geojson_path.write_text("{}", encoding="utf-8")
         return output_geojson_path
 
@@ -85,20 +87,20 @@ def test_run_pipeline_executes_stages_in_order_and_writes_output(
     monkeypatch.setattr(orchestrator, "run_geocode", fake_run_geocode)
     monkeypatch.setattr(orchestrator, "run_parse_trees", fake_run_parse_trees)
     monkeypatch.setattr(orchestrator, "run_fees", fake_run_fees)
+    monkeypatch.setattr(orchestrator, "run_export_csv", fake_run_export_csv)
     monkeypatch.setattr(orchestrator, "run_export_geojson", fake_run_export_geojson)
 
-    written_path = orchestrator.run_pipeline(
-        scraped_records_path=records_path,
-        geocoded_records_path=geocoded_path,
-        scraped_fees_path=fees_path,
-        parsed_trees_path=parsed_trees_output_path,
-        output_path=output_path,
+    returned_path = orchestrator.run_pipeline(
+        db_path=db_path,
         output_geojson_path=output_geojson_path,
+        export_start="2026-01-01",
+        export_end="2026-12-31",
     )
 
-    assert call_order == ["records", "parse_trees", "geocode", "fees", "export_geojson"]
-    assert written_path == output_path
-    output_df = pd.read_csv(output_path)
+    assert call_order == ["records", "parse_trees", "geocode", "fees", "export_csv", "export_geojson"]
+    assert returned_path == db_path
+
+    output_df = read_table_df(db_path, OUTPUT_TABLE)
     assert output_df.loc[0, "record_number"] == "R1"
     assert output_df.loc[0, "paid"] == 10.0
     assert output_geojson_path.exists()

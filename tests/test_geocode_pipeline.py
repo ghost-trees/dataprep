@@ -1,10 +1,12 @@
 from pathlib import Path
 
-import pandas as pd
 import pytest
+from db_helpers import seed_table
 from geopy.exc import GeocoderServiceError, GeocoderTimedOut
 
 from dataprep.pipelines.geocode import pipeline as geocode_pipeline
+from dataprep.shared.db import get_connection, table_exists
+from dataprep.shared.schema import GEOCODED_RECORDS_TABLE, SCRAPED_RECORDS_TABLE
 
 
 def test_geocode_address_raises_timeout() -> None:
@@ -16,23 +18,23 @@ def test_geocode_address_raises_timeout() -> None:
 
 
 def test_run_raises_when_required_columns_are_missing(tmp_path: Path) -> None:
-    input_csv = tmp_path / "input.csv"
-    output_csv = tmp_path / "output.csv"
-    pd.DataFrame({"record_number": ["R1"]}).to_csv(input_csv, index=False)
+    db_path = tmp_path / "dataprep.sqlite3"
+    seed_table(db_path, SCRAPED_RECORDS_TABLE, [{"record_number": "R1"}])
 
     with pytest.raises(ValueError, match="Expected columns"):
-        geocode_pipeline.run(input_csv_path=input_csv, output_csv_path=output_csv, workers=1)
+        geocode_pipeline.run(db_path=db_path, workers=1)
 
 
 def test_run_writes_expected_columns_with_mock_parallel(tmp_path: Path, monkeypatch) -> None:
-    input_csv = tmp_path / "input.csv"
-    output_csv = tmp_path / "output.csv"
-    pd.DataFrame(
-        {
-            "record_number": ["R1", "R2"],
-            "address": ["123 Main", "234 Pine"],
-        }
-    ).to_csv(input_csv, index=False)
+    db_path = tmp_path / "dataprep.sqlite3"
+    seed_table(
+        db_path,
+        SCRAPED_RECORDS_TABLE,
+        [
+            {"record_number": "R1", "address": "123 Main"},
+            {"record_number": "R2", "address": "234 Pine"},
+        ],
+    )
 
     def fake_geocode_in_parallel(addresses, workers):
         assert addresses == ["123 Main", "234 Pine"]
@@ -45,7 +47,7 @@ def test_run_writes_expected_columns_with_mock_parallel(tmp_path: Path, monkeypa
     monkeypatch.setattr(geocode_pipeline, "preflight_geocode_check", lambda _addresses: None)
     monkeypatch.setattr(geocode_pipeline, "geocode_in_parallel", fake_geocode_in_parallel)
 
-    result_df = geocode_pipeline.run(input_csv_path=input_csv, output_csv_path=output_csv, workers=2)
+    result_df = geocode_pipeline.run(db_path=db_path, workers=2)
 
     assert list(result_df.columns) == [
         "record_number",
@@ -58,18 +60,17 @@ def test_run_writes_expected_columns_with_mock_parallel(tmp_path: Path, monkeypa
         "123 Main St, City, State",
         "234 Pine Rd, City, State",
     ]
-    assert output_csv.exists()
+
+    connection = get_connection(db_path)
+    try:
+        assert table_exists(connection, GEOCODED_RECORDS_TABLE)
+    finally:
+        connection.close()
 
 
 def test_run_aborts_on_preflight_tls_failure(tmp_path: Path, monkeypatch) -> None:
-    input_csv = tmp_path / "input.csv"
-    output_csv = tmp_path / "output.csv"
-    pd.DataFrame(
-        {
-            "record_number": ["R1"],
-            "address": ["123 Main"],
-        }
-    ).to_csv(input_csv, index=False)
+    db_path = tmp_path / "dataprep.sqlite3"
+    seed_table(db_path, SCRAPED_RECORDS_TABLE, [{"record_number": "R1", "address": "123 Main"}])
 
     def raise_tls_error(_address: str):
         raise GeocoderServiceError("CERTIFICATE_VERIFY_FAILED")
@@ -82,5 +83,10 @@ def test_run_aborts_on_preflight_tls_failure(tmp_path: Path, monkeypatch) -> Non
     )
 
     with pytest.raises(RuntimeError, match="preflight check"):
-        geocode_pipeline.run(input_csv_path=input_csv, output_csv_path=output_csv, workers=1)
-    assert not output_csv.exists()
+        geocode_pipeline.run(db_path=db_path, workers=1)
+
+    connection = get_connection(db_path)
+    try:
+        assert not table_exists(connection, GEOCODED_RECORDS_TABLE)
+    finally:
+        connection.close()

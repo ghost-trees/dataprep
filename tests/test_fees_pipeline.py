@@ -1,8 +1,9 @@
 from pathlib import Path
 
-import pandas as pd
+from db_helpers import read_table_df, seed_table
 
 from dataprep.pipelines.fees import pipeline as fees_pipeline
+from dataprep.shared.schema import GEOCODED_RECORDS_TABLE, SCRAPED_FEES_TABLE
 
 
 class FakeQueue:
@@ -42,24 +43,25 @@ class FakeContext:
 
 
 def test_run_retries_failed_records_and_skips_success(tmp_path: Path, monkeypatch) -> None:
-    input_csv = tmp_path / "geocoded_records.csv"
-    output_csv = tmp_path / "scraped_fees.csv"
+    db_path = tmp_path / "dataprep.sqlite3"
 
-    pd.DataFrame(
-        {
-            "record_number": ["R1", "R2", "R3"],
-            "address": ["a", "b", "c"],
-        }
-    ).to_csv(input_csv, index=False)
-
-    pd.DataFrame(
-        {
-            "record_number": ["R1", "R2"],
-            "paid": [1.0, 0.0],
-            "outstanding": [0.0, 2.0],
-            "scrape_status": ["success", "failed"],
-        }
-    ).to_csv(output_csv, index=False)
+    seed_table(
+        db_path,
+        GEOCODED_RECORDS_TABLE,
+        [
+            {"record_number": "R1", "address": "a"},
+            {"record_number": "R2", "address": "b"},
+            {"record_number": "R3", "address": "c"},
+        ],
+    )
+    seed_table(
+        db_path,
+        SCRAPED_FEES_TABLE,
+        [
+            {"record_number": "R1", "paid": 1.0, "outstanding": 0.0, "scrape_status": "success"},
+            {"record_number": "R2", "paid": 0.0, "outstanding": 2.0, "scrape_status": "failed"},
+        ],
+    )
 
     def fake_worker_loop(worker_id, headless, record_queue, result_queue):
         while True:
@@ -81,9 +83,9 @@ def test_run_retries_failed_records_and_skips_success(tmp_path: Path, monkeypatc
     monkeypatch.setattr(fees_pipeline.mp, "get_context", lambda _: FakeContext())
     monkeypatch.setattr(fees_pipeline, "worker_loop", fake_worker_loop)
 
-    fees_pipeline.run(input_csv=input_csv, output_csv=output_csv, workers=1)
+    fees_pipeline.run(db_path=db_path, workers=1)
 
-    result_df = pd.read_csv(output_csv)
+    result_df = read_table_df(db_path, SCRAPED_FEES_TABLE)
     assert list(result_df["record_number"]) == ["R1", "R2", "R3"]
     assert result_df.loc[result_df["record_number"] == "R1", "paid"].item() == 1.0
     assert result_df.loc[result_df["record_number"] == "R2", "paid"].item() == 10.0

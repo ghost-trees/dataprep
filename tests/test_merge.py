@@ -2,12 +2,14 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+from db_helpers import seed_table
 
 from dataprep.merge import merge_output, prepare_join_frame, validate_no_nulls
-
-
-def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
-    pd.DataFrame(rows).to_csv(path, index=False)
+from dataprep.shared.schema import (
+    GEOCODED_RECORDS_TABLE,
+    SCRAPED_FEES_TABLE,
+    SCRAPED_RECORDS_TABLE,
+)
 
 
 def test_prepare_join_frame_prefixes_conflicting_columns() -> None:
@@ -26,34 +28,35 @@ def test_prepare_join_frame_prefixes_conflicting_columns() -> None:
 
 
 def test_merge_output_preserves_unique_rows_and_prefixes(tmp_path: Path) -> None:
-    records = tmp_path / "scraped_records.csv"
-    geocoded = tmp_path / "geocoded_records.csv"
-    fees = tmp_path / "scraped_fees.csv"
+    db_path = tmp_path / "dataprep.sqlite3"
 
-    _write_csv(
-        records,
+    seed_table(
+        db_path,
+        SCRAPED_RECORDS_TABLE,
         [
             {"record_number": "R1", "address": "123 Main", "tree_type": "Oak"},
             {"record_number": "R1", "address": "123 Main", "tree_type": "Oak Duplicate"},
             {"record_number": "R2", "address": "234 Pine", "tree_type": "Maple"},
         ],
     )
-    _write_csv(
-        geocoded,
+    seed_table(
+        db_path,
+        GEOCODED_RECORDS_TABLE,
         [
             {"record_number": "R1", "address": "123 Main", "latitude": 33.1, "longitude": -84.1},
             {"record_number": "R2", "address": "234 Pine", "latitude": 33.2, "longitude": -84.2},
         ],
     )
-    _write_csv(
-        fees,
+    seed_table(
+        db_path,
+        SCRAPED_FEES_TABLE,
         [
             {"record_number": "R1", "address": "123 Main", "paid": 10.0, "outstanding": 1.0},
             {"record_number": "R2", "address": "234 Pine", "paid": 20.0, "outstanding": 2.0},
         ],
     )
 
-    merged = merge_output(records, geocoded, fees)
+    merged = merge_output(db_path)
 
     assert len(merged) == 2
     assert {"geo_address", "fees_address", "paid", "latitude"}.issubset(set(merged.columns))

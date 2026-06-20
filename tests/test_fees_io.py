@@ -1,33 +1,61 @@
 from pathlib import Path
 
+from db_helpers import seed_table
+
 from dataprep.pipelines.fees.io import (
     merge_rows_by_input_order,
     read_existing_results,
     read_record_numbers,
 )
+from dataprep.shared.db import get_connection
+from dataprep.shared.schema import GEOCODED_RECORDS_TABLE, SCRAPED_FEES_TABLE
 
 
-def test_read_record_numbers_accepts_snake_or_title_case_headers(tmp_path: Path) -> None:
-    snake_input = tmp_path / "snake.csv"
-    snake_input.write_text("record_number\nR1\nR2\nR1\n", encoding="utf-8")
+def test_read_record_numbers_returns_unique_in_order(tmp_path: Path) -> None:
+    db_path = tmp_path / "dataprep.sqlite3"
+    seed_table(
+        db_path,
+        GEOCODED_RECORDS_TABLE,
+        [
+            {"record_number": "R1", "address": "a"},
+            {"record_number": "R2", "address": "b"},
+        ],
+    )
 
-    title_input = tmp_path / "title.csv"
-    title_input.write_text("Record Number\nT1\nT2\n", encoding="utf-8")
+    connection = get_connection(db_path)
+    try:
+        assert read_record_numbers(connection) == ["R1", "R2"]
+        assert read_record_numbers(connection, limit=1) == ["R1"]
+    finally:
+        connection.close()
 
-    assert read_record_numbers(snake_input) == ["R1", "R2"]
-    assert read_record_numbers(title_input) == ["T1", "T2"]
+
+def test_read_record_numbers_empty_when_table_missing(tmp_path: Path) -> None:
+    db_path = tmp_path / "dataprep.sqlite3"
+
+    connection = get_connection(db_path)
+    try:
+        assert read_record_numbers(connection) == []
+    finally:
+        connection.close()
 
 
 def test_read_existing_results_splits_success_and_failed(tmp_path: Path) -> None:
-    output = tmp_path / "fees.csv"
-    output.write_text(
-        "record_number,paid,outstanding,scrape_status\n"
-        "R1,12.5,0,success\n"
-        "R2,0,4.0,failed\n",
-        encoding="utf-8",
+    db_path = tmp_path / "dataprep.sqlite3"
+    seed_table(
+        db_path,
+        SCRAPED_FEES_TABLE,
+        [
+            {"record_number": "R1", "paid": 12.5, "outstanding": 0.0, "scrape_status": "success"},
+            {"record_number": "R2", "paid": 0.0, "outstanding": 4.0, "scrape_status": "failed"},
+        ],
     )
 
-    rows, success, failed = read_existing_results(output)
+    connection = get_connection(db_path)
+    try:
+        rows, success, failed = read_existing_results(connection)
+    finally:
+        connection.close()
 
     assert len(rows) == 2
     assert success == {"R1"}
