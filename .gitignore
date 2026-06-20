@@ -34,6 +34,9 @@ Thumbs.db
 
 # Project-generated artifacts
 data/*.csv
+data/*.sqlite3
+data/*.sqlite3-wal
+data/*.sqlite3-shm
 temp/
 geocoded_record.csv
 scraped_fees.csv

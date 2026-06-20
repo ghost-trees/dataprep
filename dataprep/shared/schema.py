@@ -9,6 +9,14 @@ PAID_COLUMN = "paid"
 OUTSTANDING_COLUMN = "outstanding"
 SCRAPE_STATUS_COLUMN = "scrape_status"
 TREE_TYPES_COLUMN = "tree_types"
+DATE_COLUMN = "date"
+DATE_ISO_COLUMN = "date_iso"
+
+SCRAPED_RECORDS_TABLE = "scraped_records"
+GEOCODED_RECORDS_TABLE = "geocoded_records"
+SCRAPED_FEES_TABLE = "scraped_fees"
+PARSED_TREES_TABLE = "parsed_trees"
+OUTPUT_TABLE = "output"
 
 GEOCODE_OUTPUT_COLUMNS = [
     RECORD_NUMBER_COLUMN,
