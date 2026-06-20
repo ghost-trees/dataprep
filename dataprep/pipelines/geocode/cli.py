@@ -3,7 +3,7 @@
 import argparse
 from pathlib import Path
 
-from dataprep.shared.paths import GEOCODED_RECORDS_PATH, SCRAPED_RECORDS_PATH
+from dataprep.shared.db import DEFAULT_DB_PATH
 
 from .pipeline import run
 
@@ -20,12 +20,13 @@ def parse_args() -> argparse.Namespace:
     """Build and parse command-line arguments for geocoding.
 
     Returns:
-        Parsed arguments including input/output paths, worker count, and
+        Parsed arguments including the database path, worker count, and
         whether to force a full rerun.
     """
-    parser = argparse.ArgumentParser(description="Geocode record addresses from scraped_records.csv.")
-    parser.add_argument("--input", type=Path, default=SCRAPED_RECORDS_PATH)
-    parser.add_argument("--output", type=Path, default=GEOCODED_RECORDS_PATH)
+    parser = argparse.ArgumentParser(
+        description="Geocode record addresses from the scraped_records table."
+    )
+    parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
     parser.add_argument(
         "--workers",
         type=positive_int,
@@ -47,12 +48,11 @@ def main() -> None:
     """Run geocode pipeline from CLI args."""
     args = parse_args()
     updated_df = run(
-        input_csv_path=args.input,
-        output_csv_path=args.output,
+        db_path=args.db,
         workers=args.workers,
         redo_all=args.redo_all,
     )
-    print(f"Geocoded {len(updated_df)} records and saved to {args.output.as_posix()}")
+    print(f"Geocoded {len(updated_df)} records into the geocoded_records table.")
 
 
 if __name__ == "__main__":

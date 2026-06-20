@@ -1,19 +1,22 @@
 """Record scraping pipeline."""
 
 import csv
+import tempfile
 from collections import Counter
 from pathlib import Path
 
+import pandas as pd
 from playwright.sync_api import Download, Playwright, sync_playwright
 
-from dataprep.shared.normalize import to_snake_case
-from dataprep.shared.paths import SCRAPED_RECORDS_PATH
+from dataprep.shared.db import DEFAULT_DB_PATH, get_connection, write_table
+from dataprep.shared.normalize import derive_date_iso, to_snake_case
 from dataprep.shared.portal import (
     ACA_FRAME_NAME,
     ACA_FRAME_SELECTOR,
     PORTAL_URL,
     click_find_application_link,
 )
+from dataprep.shared.schema import SCRAPED_RECORDS_TABLE
 
 PERMIT_TYPE = "Building/Arborist/Illegal Activity/NA"
 START_DATE_SELECTOR = "#ctl00_PlaceHolderMain_generalSearchForm_txtGSStartDate"
@@ -86,19 +89,36 @@ def _deduplicate_exact_rows(csv_path: str | Path) -> int:
     return removed_rows
 
 
+def _ingest_records_csv(csv_path: Path, db_path: Path) -> int:
+    """Load a normalized records CSV, derive date_iso, and write to SQLite.
+
+    Returns the number of rows written to the ``scraped_records`` table.
+    """
+    df = pd.read_csv(csv_path)
+    df = derive_date_iso(df)
+    connection = get_connection(db_path)
+    try:
+        written = write_table(
+            connection, SCRAPED_RECORDS_TABLE, df, dataset_name="scraped_records"
+        )
+    finally:
+        connection.close()
+    return len(written)
+
+
 def run(
-    output_csv: Path = SCRAPED_RECORDS_PATH,
+    db_path: Path = DEFAULT_DB_PATH,
     permit_type: str = PERMIT_TYPE,
     start_date: str = DEFAULT_START_DATE,
     end_date: str = DEFAULT_END_DATE,
     playwright: Playwright | None = None,
     headless: bool = False,
 ) -> Path:
-    """Scrape records from ACA and write normalized output CSV."""
+    """Scrape records from ACA and ingest them into the scraped_records table."""
     if playwright is None:
         with sync_playwright() as managed_playwright:
             return run(
-                output_csv=output_csv,
+                db_path=db_path,
                 permit_type=permit_type,
                 start_date=start_date,
                 end_date=end_date,
@@ -135,13 +155,16 @@ def run(
         with page.expect_download() as downloaded_data:
             frame.get_by_role("link", name="Download results").click()
 
-        output_csv.parent.mkdir(parents=True, exist_ok=True)
         download: Download = downloaded_data.value
-        download.save_as(str(output_csv))
-        _normalize_csv_headers_to_snake_case(output_csv)
-        _deduplicate_exact_rows(output_csv)
-        _assert_unique_record_numbers(output_csv)
-        return output_csv
+        with tempfile.TemporaryDirectory() as temp_dir:
+            download_csv = Path(temp_dir) / "scraped_records.csv"
+            download.save_as(str(download_csv))
+            _normalize_csv_headers_to_snake_case(download_csv)
+            _deduplicate_exact_rows(download_csv)
+            _assert_unique_record_numbers(download_csv)
+            row_count = _ingest_records_csv(download_csv, db_path)
+        print(f"Ingested {row_count} records into '{SCRAPED_RECORDS_TABLE}' at {db_path}")
+        return Path(db_path)
     finally:
         context.close()
         browser.close()

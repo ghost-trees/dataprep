@@ -1,6 +1,7 @@
 """Geocoding pipeline."""
 
 import multiprocessing as mp
+import sqlite3
 from pathlib import Path
 
 import pandas as pd
@@ -8,14 +9,22 @@ from geopy.exc import GeocoderServiceError, GeocoderTimedOut
 from geopy.geocoders import Nominatim
 from geopy.extra.rate_limiter import RateLimiter
 
-from dataprep.shared.paths import GEOCODED_RECORDS_PATH, SCRAPED_RECORDS_PATH
+from dataprep.shared.db import (
+    DEFAULT_DB_PATH,
+    get_connection,
+    read_table,
+    read_table_if_exists,
+    write_table,
+)
 from dataprep.shared.schema import (
     ADDRESS_COLUMN,
     GEOCODED_ADDRESS_COLUMN,
     GEOCODE_OUTPUT_COLUMNS,
+    GEOCODED_RECORDS_TABLE,
     LATITUDE_COLUMN,
     LONGITUDE_COLUMN,
     RECORD_NUMBER_COLUMN,
+    SCRAPED_RECORDS_TABLE,
 )
 
 
@@ -183,23 +192,25 @@ def geocode_in_parallel(
     return geocoded_results, geocoded_count
 
 
-def read_existing_successful_geocodes(output_csv_path: Path) -> dict[str, ExistingGeocode]:
+def read_existing_successful_geocodes(
+    connection: sqlite3.Connection,
+) -> dict[str, ExistingGeocode]:
     """Read prior successful geocode rows keyed by record number.
 
     Args:
-        output_csv_path: Path to the existing geocoded output CSV.
+        connection: Open SQLite connection.
 
     Returns:
         Mapping of record number to reusable geocode data:
         `(address, latitude, longitude, geocoded_address)`.
 
     Raises:
-        ValueError: If an existing output file is missing required columns.
+        ValueError: If an existing geocoded_records table is missing columns.
     """
-    if not output_csv_path.exists():
+    existing_df = read_table_if_exists(connection, GEOCODED_RECORDS_TABLE)
+    if existing_df is None:
         return {}
 
-    existing_df = pd.read_csv(output_csv_path)
     required_columns = [
         RECORD_NUMBER_COLUMN,
         ADDRESS_COLUMN,
@@ -210,7 +221,7 @@ def read_existing_successful_geocodes(output_csv_path: Path) -> dict[str, Existi
     missing_columns = [column for column in required_columns if column not in existing_df.columns]
     if missing_columns:
         raise ValueError(
-            f"Expected columns {required_columns} in {output_csv_path}, "
+            f"Expected columns {required_columns} in '{GEOCODED_RECORDS_TABLE}', "
             f"but missing: {missing_columns}. Found: {list(existing_df.columns)}"
         )
 
@@ -231,21 +242,19 @@ def read_existing_successful_geocodes(output_csv_path: Path) -> dict[str, Existi
 
 
 def run(
-    input_csv_path: Path = SCRAPED_RECORDS_PATH,
-    output_csv_path: Path = GEOCODED_RECORDS_PATH,
+    db_path: Path = DEFAULT_DB_PATH,
     workers: int = 1,
     redo_all: bool = False,
 ) -> pd.DataFrame:
-    """Geocode addresses from scraped records and write output CSV.
+    """Geocode addresses from the scraped_records table and write geocoded_records.
 
-    The pipeline writes geocode output to disk and calls the external Nominatim
-    service for pending addresses. By default, it reuses prior successful
-    geocode rows from an existing output file when record number and address
-    are unchanged. Use `redo_all=True` to force a full rerun.
+    The pipeline calls the external Nominatim service for pending addresses. By
+    default, it reuses prior successful geocode rows from the existing
+    ``geocoded_records`` table when record number and address are unchanged. Use
+    `redo_all=True` to force a full rerun.
 
     Args:
-        input_csv_path: Source CSV path containing record numbers and addresses.
-        output_csv_path: Destination CSV path for geocode output.
+        db_path: Path to the SQLite database.
         workers: Maximum worker process count for parallel geocoding.
         redo_all: When True, geocode all records regardless of prior output.
 
@@ -256,20 +265,37 @@ def run(
         ValueError: If input or existing output columns are missing.
         RuntimeError: If geocoding workers fail due to geocoder connectivity.
     """
-    df = pd.read_csv(input_csv_path)
+    connection = get_connection(db_path)
+    try:
+        df = read_table(connection, SCRAPED_RECORDS_TABLE)
 
-    required_columns = [RECORD_NUMBER_COLUMN, ADDRESS_COLUMN]
-    missing_columns = [column for column in required_columns if column not in df.columns]
-    if missing_columns:
-        raise ValueError(
-            f"Expected columns {required_columns} in {input_csv_path}, "
-            f"but missing: {missing_columns}. Found: {list(df.columns)}"
+        required_columns = [RECORD_NUMBER_COLUMN, ADDRESS_COLUMN]
+        missing_columns = [column for column in required_columns if column not in df.columns]
+        if missing_columns:
+            raise ValueError(
+                f"Expected columns {required_columns} in '{SCRAPED_RECORDS_TABLE}', "
+                f"but missing: {missing_columns}. Found: {list(df.columns)}"
+            )
+
+        existing_successful = read_existing_successful_geocodes(connection)
+        return _geocode_dataframe(
+            connection, df, existing_successful, workers=workers, redo_all=redo_all
         )
+    finally:
+        connection.close()
 
+
+def _geocode_dataframe(
+    connection: sqlite3.Connection,
+    df: pd.DataFrame,
+    existing_successful: dict[str, ExistingGeocode],
+    *,
+    workers: int,
+    redo_all: bool,
+) -> pd.DataFrame:
+    """Geocode pending rows and write the geocoded_records table."""
     total_records = len(df)
     print(f"Starting geocoding for {total_records} records...")
-
-    existing_successful = read_existing_successful_geocodes(output_csv_path)
 
     geocoded_results: list[GeocodeResult] = [(None, None, None)] * total_records
     pending_indices: list[int] = []
@@ -319,8 +345,9 @@ def run(
     df[GEOCODED_ADDRESS_COLUMN] = [row[2] for row in geocoded_results]
 
     output_df = df[GEOCODE_OUTPUT_COLUMNS].copy()
-    output_csv_path.parent.mkdir(parents=True, exist_ok=True)
-    output_df.to_csv(output_csv_path, index=False)
+    output_df = write_table(
+        connection, GEOCODED_RECORDS_TABLE, output_df, dataset_name="geocoded_records"
+    )
 
     total_success = sum(
         1 for latitude, longitude, _ in geocoded_results if latitude is not None and longitude is not None

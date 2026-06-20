@@ -1,8 +1,8 @@
-"""Build a GeoJSON FeatureCollection from final pipeline CSV outputs.
+"""Build a GeoJSON FeatureCollection from the SQLite source of truth.
 
-This module reads canonical datasets keyed by record number, joins them into one
-feature frame, writes `data.geojson`, and emits a warning when fee details are
-missing for some records.
+This module reads canonical tables keyed by record number, filters them to the
+curated date window, joins them into one feature frame, writes `data.geojson`,
+and emits a warning when fee details are missing for some records.
 """
 
 from __future__ import annotations
@@ -13,24 +13,28 @@ from pathlib import Path
 
 import pandas as pd
 
-from dataprep.shared.paths import (
-    DATA_GEOJSON_PATH,
-    GEOCODED_RECORDS_PATH,
-    PARSED_TREES_PATH,
-    SCRAPED_FEES_PATH,
-    SCRAPED_RECORDS_PATH,
+from dataprep.shared.db import DEFAULT_DB_PATH, get_connection, read_table
+from dataprep.shared.exports import (
+    CSV_EXPORT_END,
+    CSV_EXPORT_START,
+    in_window_record_numbers,
 )
+from dataprep.shared.paths import DATA_GEOJSON_PATH
 from dataprep.shared.schema import (
+    DATE_COLUMN,
     GEOCODED_ADDRESS_COLUMN,
+    GEOCODED_RECORDS_TABLE,
     LATITUDE_COLUMN,
     LONGITUDE_COLUMN,
     OUTSTANDING_COLUMN,
     PAID_COLUMN,
+    PARSED_TREES_TABLE,
     RECORD_NUMBER_COLUMN,
+    SCRAPED_FEES_TABLE,
+    SCRAPED_RECORDS_TABLE,
     TREE_TYPES_COLUMN,
 )
 
-DATE_COLUMN = "date"
 RECORD_TYPE_COLUMN = "record_type"
 PERMIT_NAME_COLUMN = "permit_name"
 STATUS_COLUMN = "status"
@@ -126,20 +130,18 @@ def _build_feature_collection(merged_df: pd.DataFrame) -> dict[str, object]:
 
 
 def run(
-    scraped_records_path: Path = SCRAPED_RECORDS_PATH,
-    geocoded_records_path: Path = GEOCODED_RECORDS_PATH,
-    scraped_fees_path: Path = SCRAPED_FEES_PATH,
-    parsed_trees_path: Path = PARSED_TREES_PATH,
+    db_path: Path = DEFAULT_DB_PATH,
     output_geojson_path: Path = DATA_GEOJSON_PATH,
+    start: str = CSV_EXPORT_START,
+    end: str = CSV_EXPORT_END,
 ) -> Path:
-    """Generate a final GeoJSON dataset from pipeline CSV outputs.
+    """Generate a windowed GeoJSON dataset from the SQLite source of truth.
 
     Args:
-        scraped_records_path: Path to scraped records CSV.
-        geocoded_records_path: Path to geocoded records CSV.
-        scraped_fees_path: Path to scraped fees CSV.
-        parsed_trees_path: Path to parsed trees CSV.
+        db_path: Path to the SQLite database.
         output_geojson_path: Destination path for GeoJSON output.
+        start: Inclusive ISO (YYYY-MM-DD) window start.
+        end: Inclusive ISO (YYYY-MM-DD) window end.
 
     Returns:
         The written GeoJSON output path.
@@ -147,10 +149,15 @@ def run(
     Raises:
         ValueError: If any required source columns are missing.
     """
-    records_df = pd.read_csv(scraped_records_path)
-    geocoded_df = pd.read_csv(geocoded_records_path)
-    parsed_trees_df = pd.read_csv(parsed_trees_path)
-    fees_df = pd.read_csv(scraped_fees_path)
+    connection = get_connection(db_path)
+    try:
+        records_df = read_table(connection, SCRAPED_RECORDS_TABLE)
+        geocoded_df = read_table(connection, GEOCODED_RECORDS_TABLE)
+        parsed_trees_df = read_table(connection, PARSED_TREES_TABLE)
+        fees_df = read_table(connection, SCRAPED_FEES_TABLE)
+        window_records = in_window_record_numbers(connection, start, end)
+    finally:
+        connection.close()
 
     _validate_required_columns(
         records_df,
@@ -162,23 +169,28 @@ def run(
             STATUS_COLUMN,
             DESCRIPTION_COLUMN,
         ],
-        source_name=str(scraped_records_path),
+        source_name=SCRAPED_RECORDS_TABLE,
     )
     _validate_required_columns(
         geocoded_df,
         [RECORD_NUMBER_COLUMN, LATITUDE_COLUMN, LONGITUDE_COLUMN, GEOCODED_ADDRESS_COLUMN],
-        source_name=str(geocoded_records_path),
+        source_name=GEOCODED_RECORDS_TABLE,
     )
     _validate_required_columns(
         parsed_trees_df,
         [RECORD_NUMBER_COLUMN, TREE_TYPES_COLUMN],
-        source_name=str(parsed_trees_path),
+        source_name=PARSED_TREES_TABLE,
     )
     _validate_required_columns(
         fees_df,
         [RECORD_NUMBER_COLUMN, PAID_COLUMN, OUTSTANDING_COLUMN],
-        source_name=str(scraped_fees_path),
+        source_name=SCRAPED_FEES_TABLE,
     )
+
+    if window_records is not None:
+        records_df = records_df[
+            records_df[RECORD_NUMBER_COLUMN].astype(str).isin(window_records)
+        ].copy()
 
     merged_df = records_df.merge(
         geocoded_df[

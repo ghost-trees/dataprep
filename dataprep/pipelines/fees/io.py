@@ -1,61 +1,80 @@
-"""CSV input/output helpers for fee scraping records and results."""
+"""SQLite input/output helpers for fee scraping records and results."""
 
-import csv
-from pathlib import Path
+import sqlite3
+
+import pandas as pd
+
+from dataprep.shared.db import read_table_if_exists, write_table
+from dataprep.shared.schema import (
+    GEOCODED_RECORDS_TABLE,
+    RECORD_NUMBER_COLUMN,
+    SCRAPED_FEES_TABLE,
+)
 
 from .constants import STATUS_FAILED, STATUS_SUCCESS
 from .types import FeeRow
 
+FEE_RESULT_COLUMNS = ["record_number", "paid", "outstanding", "scrape_status"]
 
-def read_record_numbers(input_csv: Path, limit: int | None = None) -> list[str]:
-    """Read unique record numbers from the input CSV."""
+
+def _coerce_float(value: object) -> float:
+    """Coerce a stored numeric/text value to float, defaulting to 0.0."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return 0.0
+    text = str(value).strip()
+    return float(text) if text else 0.0
+
+
+def read_record_numbers(connection: sqlite3.Connection, limit: int | None = None) -> list[str]:
+    """Read unique record numbers from the geocoded_records table."""
+    df = read_table_if_exists(connection, GEOCODED_RECORDS_TABLE)
+    if df is None or RECORD_NUMBER_COLUMN not in df.columns:
+        return []
+
     records: list[str] = []
     seen: set[str] = set()
-    with input_csv.open(newline="", encoding="utf-8-sig") as file:
-        for row in csv.DictReader(file):
-            record_number = (
-                row.get("record_number") or row.get("Record Number") or ""
-            ).strip()
-            if not record_number or record_number in seen:
-                continue
-            seen.add(record_number)
-            records.append(record_number)
-            if limit and len(records) >= limit:
-                break
+    for value in df[RECORD_NUMBER_COLUMN]:
+        record_number = "" if value is None else str(value).strip()
+        if not record_number or record_number in seen:
+            continue
+        seen.add(record_number)
+        records.append(record_number)
+        if limit and len(records) >= limit:
+            break
     return records
 
 
-def read_existing_results(output_csv: Path) -> tuple[list[FeeRow], set[str], set[str]]:
-    """Read existing scrape results and split record statuses."""
-    if not output_csv.exists():
+def read_existing_results(
+    connection: sqlite3.Connection,
+) -> tuple[list[FeeRow], set[str], set[str]]:
+    """Read existing scrape results from the scraped_fees table by status."""
+    df = read_table_if_exists(connection, SCRAPED_FEES_TABLE)
+    if df is None:
         return [], set(), set()
 
     rows: list[FeeRow] = []
     existing_records: set[str] = set()
     success_records: set[str] = set()
     failed_records: set[str] = set()
-    with output_csv.open(newline="", encoding="utf-8-sig") as file:
-        for row in csv.DictReader(file):
-            record_number = (row.get("record_number") or "").strip()
-            if not record_number or record_number in existing_records:
-                continue
-            existing_records.add(record_number)
-            scrape_status = (row.get("scrape_status") or STATUS_FAILED).strip().lower()
-            if not scrape_status:
-                scrape_status = STATUS_FAILED
-            if scrape_status == STATUS_SUCCESS:
-                success_records.add(record_number)
-            else:
-                scrape_status = STATUS_FAILED
-                failed_records.add(record_number)
-            rows.append(
-                {
-                    "record_number": record_number,
-                    "paid": float((row.get("paid") or "0").strip() or "0"),
-                    "outstanding": float((row.get("outstanding") or "0").strip() or "0"),
-                    "scrape_status": scrape_status,
-                }
-            )
+    for row in df.to_dict("records"):
+        record_number = "" if row.get("record_number") is None else str(row["record_number"]).strip()
+        if not record_number or record_number in existing_records:
+            continue
+        existing_records.add(record_number)
+        scrape_status = str(row.get("scrape_status") or STATUS_FAILED).strip().lower()
+        if scrape_status == STATUS_SUCCESS:
+            success_records.add(record_number)
+        else:
+            scrape_status = STATUS_FAILED
+            failed_records.add(record_number)
+        rows.append(
+            {
+                "record_number": record_number,
+                "paid": _coerce_float(row.get("paid")),
+                "outstanding": _coerce_float(row.get("outstanding")),
+                "scrape_status": scrape_status,
+            }
+        )
     return rows, success_records, failed_records
 
 
@@ -85,12 +104,7 @@ def merge_rows_by_input_order(
     return merged
 
 
-def write_results(output_csv: Path, rows: list[FeeRow]) -> None:
-    """Write scrape result rows to the output CSV file."""
-    output_csv.parent.mkdir(parents=True, exist_ok=True)
-    with output_csv.open("w", newline="", encoding="utf-8") as file:
-        writer = csv.DictWriter(
-            file, fieldnames=["record_number", "paid", "outstanding", "scrape_status"]
-        )
-        writer.writeheader()
-        writer.writerows(rows)
+def write_results(connection: sqlite3.Connection, rows: list[FeeRow]) -> None:
+    """Write scrape result rows to the scraped_fees table."""
+    results_df = pd.DataFrame(rows, columns=FEE_RESULT_COLUMNS)
+    write_table(connection, SCRAPED_FEES_TABLE, results_df, dataset_name="scraped_fees")

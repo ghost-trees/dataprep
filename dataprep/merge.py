@@ -4,8 +4,17 @@ from pathlib import Path
 
 import pandas as pd
 
-from dataprep.shared.csv_utils import load_dataset
-from dataprep.shared.schema import RECORD_NUMBER_COLUMN
+from dataprep.shared.db import (
+    DEFAULT_DB_PATH,
+    get_connection,
+    read_table,
+)
+from dataprep.shared.schema import (
+    GEOCODED_RECORDS_TABLE,
+    RECORD_NUMBER_COLUMN,
+    SCRAPED_FEES_TABLE,
+    SCRAPED_RECORDS_TABLE,
+)
 
 
 def prepare_join_frame(
@@ -34,15 +43,15 @@ def prepare_join_frame(
     return source_df[selected_columns].rename(columns=rename_map)
 
 
-def merge_output(
-    records_path: Path,
-    geocoded_path: Path,
-    fees_path: Path,
-) -> pd.DataFrame:
-    """Load stage outputs and merge them by record_number."""
-    records_df = load_dataset(records_path, "scraped_records")
-    geocoded_df = load_dataset(geocoded_path, "geocoded_records")
-    fees_df = load_dataset(fees_path, "scraped_fees")
+def merge_output(db_path: Path = DEFAULT_DB_PATH) -> pd.DataFrame:
+    """Load stage tables from SQLite and merge them by record_number."""
+    connection = get_connection(db_path)
+    try:
+        records_df = read_table(connection, SCRAPED_RECORDS_TABLE)
+        geocoded_df = read_table(connection, GEOCODED_RECORDS_TABLE)
+        fees_df = read_table(connection, SCRAPED_FEES_TABLE)
+    finally:
+        connection.close()
 
     output_df = records_df.copy()
     used_columns = set(output_df.columns)

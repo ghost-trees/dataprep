@@ -9,8 +9,14 @@ from pathlib import Path
 
 import pandas as pd
 
-from dataprep.shared.paths import PARSED_TREES_PATH, SCRAPED_RECORDS_PATH
-from dataprep.shared.schema import PARSE_TREES_OUTPUT_COLUMNS, RECORD_NUMBER_COLUMN, TREE_TYPES_COLUMN
+from dataprep.shared.db import DEFAULT_DB_PATH, get_connection, read_table, write_table
+from dataprep.shared.schema import (
+    PARSE_TREES_OUTPUT_COLUMNS,
+    PARSED_TREES_TABLE,
+    RECORD_NUMBER_COLUMN,
+    SCRAPED_RECORDS_TABLE,
+    TREE_TYPES_COLUMN,
+)
 
 DESCRIPTION_COLUMN = "description"
 SHORT_NOTES_COLUMN = "short_notes"
@@ -170,56 +176,60 @@ def extract_tree_types(description: object, short_notes: object) -> list[str]:
     return matched_tree_types
 
 
-def run(
-    input_csv_path: Path = SCRAPED_RECORDS_PATH,
-    output_csv_path: Path = PARSED_TREES_PATH,
-) -> pd.DataFrame:
-    """Parse and normalize tree type mentions from scraped records CSV text.
+def run(db_path: Path = DEFAULT_DB_PATH) -> pd.DataFrame:
+    """Parse and normalize tree type mentions from the scraped_records table.
+
+    Reads the ``scraped_records`` table, extracts normalized tree types from the
+    record text fields, and writes the ``parsed_trees`` table.
 
     Args:
-        input_csv_path: Source scraped records CSV path.
-        output_csv_path: Destination parse-trees CSV path.
+        db_path: Path to the SQLite database.
 
     Returns:
         DataFrame containing parse-trees output columns.
 
     Raises:
-        ValueError: If required source columns are missing from the input CSV.
+        ValueError: If required source columns are missing from scraped_records.
     """
-    df = pd.read_csv(input_csv_path)
+    connection = get_connection(db_path)
+    try:
+        df = read_table(connection, SCRAPED_RECORDS_TABLE)
 
-    required_columns = [RECORD_NUMBER_COLUMN, DESCRIPTION_COLUMN, SHORT_NOTES_COLUMN]
-    missing_columns = [column for column in required_columns if column not in df.columns]
-    if missing_columns:
-        raise ValueError(
-            f"Expected columns {required_columns} in {input_csv_path}, "
-            f"but missing: {missing_columns}. Found: {list(df.columns)}"
-        )
-
-    print(f"Starting parse-trees extraction for {len(df)} records...")
-    parsed_tree_types = [
-        TREE_TYPES_DELIMITER.join(
-            extract_tree_types(
-                getattr(row, DESCRIPTION_COLUMN),
-                getattr(row, SHORT_NOTES_COLUMN),
+        required_columns = [RECORD_NUMBER_COLUMN, DESCRIPTION_COLUMN, SHORT_NOTES_COLUMN]
+        missing_columns = [column for column in required_columns if column not in df.columns]
+        if missing_columns:
+            raise ValueError(
+                f"Expected columns {required_columns} in '{SCRAPED_RECORDS_TABLE}', "
+                f"but missing: {missing_columns}. Found: {list(df.columns)}"
             )
+
+        print(f"Starting parse-trees extraction for {len(df)} records...")
+        parsed_tree_types = [
+            TREE_TYPES_DELIMITER.join(
+                extract_tree_types(
+                    getattr(row, DESCRIPTION_COLUMN),
+                    getattr(row, SHORT_NOTES_COLUMN),
+                )
+            )
+            for row in df.itertuples(index=False)
+        ]
+
+        output_df = pd.DataFrame(
+            {
+                RECORD_NUMBER_COLUMN: df[RECORD_NUMBER_COLUMN],
+                TREE_TYPES_COLUMN: parsed_tree_types,
+            }
+        )[PARSE_TREES_OUTPUT_COLUMNS].copy()
+
+        output_df = write_table(
+            connection, PARSED_TREES_TABLE, output_df, dataset_name="parsed_trees"
         )
-        for row in df.itertuples(index=False)
-    ]
-
-    output_df = pd.DataFrame(
-        {
-            RECORD_NUMBER_COLUMN: df[RECORD_NUMBER_COLUMN],
-            TREE_TYPES_COLUMN: parsed_tree_types,
-        }
-    )[PARSE_TREES_OUTPUT_COLUMNS].copy()
-
-    output_csv_path.parent.mkdir(parents=True, exist_ok=True)
-    output_df.to_csv(output_csv_path, index=False)
+    finally:
+        connection.close()
 
     records_with_matches = sum(bool(value) for value in parsed_tree_types)
     print(f"Finished parse-trees extraction. Total input: {len(df)}")
     print(f"- Records with matches: {records_with_matches}")
     print(f"- Records without matches: {len(df) - records_with_matches}")
-    print(f"- Output file: {output_csv_path}")
+    print(f"- Output table: {PARSED_TREES_TABLE}")
     return output_df

@@ -3,7 +3,7 @@
 import argparse
 from pathlib import Path
 
-from dataprep.shared.paths import GEOCODED_RECORDS_PATH, SCRAPED_FEES_PATH
+from dataprep.shared.db import DEFAULT_DB_PATH
 
 from .pipeline import run
 
@@ -19,10 +19,9 @@ def positive_int(value: str) -> int:
 def parse_args() -> argparse.Namespace:
     """Build and parse command-line arguments for fee scraping."""
     parser = argparse.ArgumentParser(
-        description="Scrape paid/outstanding fees for records from geocoded_records.csv."
+        description="Scrape paid/outstanding fees for records from the geocoded_records table."
     )
-    parser.add_argument("--input", type=Path, default=GEOCODED_RECORDS_PATH)
-    parser.add_argument("--output", type=Path, default=SCRAPED_FEES_PATH)
+    parser.add_argument("--db", type=Path, default=DEFAULT_DB_PATH)
     parser.add_argument("--limit", type=int, default=None, help="Only scrape the first N records.")
     parser.add_argument(
         "--workers",
@@ -42,8 +41,7 @@ def main() -> None:
     """Run the fee scraping pipeline using parsed CLI arguments."""
     args = parse_args()
     run(
-        input_csv=args.input,
-        output_csv=args.output,
+        db_path=args.db,
         headless=not args.headed,
         limit=args.limit,
         workers=args.workers,
