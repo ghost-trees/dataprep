@@ -1,0 +1,10 @@
+[
+  "date",
+  "record_number",
+  "record_type",
+  "address",
+  "description",
+  "permit_name",
+  "status",
+  "short_notes"
+]

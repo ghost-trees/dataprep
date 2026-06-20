@@ -5,18 +5,19 @@ import tempfile
 from collections import Counter
 from pathlib import Path
 
-import pandas as pd
 from playwright.sync_api import Download, Playwright, sync_playwright
 
-from dataprep.shared.db import DEFAULT_DB_PATH, get_connection, write_table
-from dataprep.shared.normalize import derive_date_iso, to_snake_case
+from dataprep.shared.db import DEFAULT_DB_PATH, get_connection
+from dataprep.shared.normalize import to_snake_case
 from dataprep.shared.portal import (
     ACA_FRAME_NAME,
     ACA_FRAME_SELECTOR,
     PORTAL_URL,
     click_find_application_link,
 )
-from dataprep.shared.schema import SCRAPED_RECORDS_TABLE
+from dataprep.shared.schema import SCRAPED_RECORDS_TABLE, assert_aca_export_schema
+
+from .io import RecordsIngestSummary, ingest_scraped_records_csv
 
 PERMIT_TYPE = "Building/Arborist/Illegal Activity/NA"
 START_DATE_SELECTOR = "#ctl00_PlaceHolderMain_generalSearchForm_txtGSStartDate"
@@ -89,21 +90,10 @@ def _deduplicate_exact_rows(csv_path: str | Path) -> int:
     return removed_rows
 
 
-def _ingest_records_csv(csv_path: Path, db_path: Path) -> int:
-    """Load a normalized records CSV, derive date_iso, and write to SQLite.
-
-    Returns the number of rows written to the ``scraped_records`` table.
-    """
-    df = pd.read_csv(csv_path)
-    df = derive_date_iso(df)
-    connection = get_connection(db_path)
-    try:
-        written = write_table(
-            connection, SCRAPED_RECORDS_TABLE, df, dataset_name="scraped_records"
-        )
-    finally:
-        connection.close()
-    return len(written)
+def _read_csv_fieldnames(csv_path: str | Path) -> list[str]:
+    with Path(csv_path).open(newline="", encoding="utf-8") as csv_file:
+        reader = csv.DictReader(csv_file)
+        return reader.fieldnames or []
 
 
 def run(
@@ -114,7 +104,7 @@ def run(
     playwright: Playwright | None = None,
     headless: bool = False,
 ) -> Path:
-    """Scrape records from ACA and ingest them into the scraped_records table."""
+    """Scrape records from ACA and merge/upsert into the scraped_records table."""
     if playwright is None:
         with sync_playwright() as managed_playwright:
             return run(
@@ -160,11 +150,43 @@ def run(
             download_csv = Path(temp_dir) / "scraped_records.csv"
             download.save_as(str(download_csv))
             _normalize_csv_headers_to_snake_case(download_csv)
-            _deduplicate_exact_rows(download_csv)
+            assert_aca_export_schema(_read_csv_fieldnames(download_csv))
+            exact_duplicates_removed = _deduplicate_exact_rows(download_csv)
             _assert_unique_record_numbers(download_csv)
-            row_count = _ingest_records_csv(download_csv, db_path)
-        print(f"Ingested {row_count} records into '{SCRAPED_RECORDS_TABLE}' at {db_path}")
+            connection = get_connection(db_path)
+            try:
+                summary = ingest_scraped_records_csv(
+                    connection,
+                    download_csv,
+                    exact_duplicates_removed=exact_duplicates_removed,
+                )
+            finally:
+                connection.close()
+
+        _print_summary(permit_type, start_date, end_date, summary)
         return Path(db_path)
     finally:
         context.close()
         browser.close()
+
+
+def _print_summary(
+    permit_type: str,
+    start_date: str,
+    end_date: str,
+    summary: RecordsIngestSummary,
+) -> None:
+    print("Starting record scrape")
+    print(f"- Permit type: {permit_type}")
+    print(f"- Date range: {start_date} to {end_date}")
+    print(f"- Downloaded rows: {summary.downloaded_rows}")
+    print(f"- Exact duplicate rows removed: {summary.exact_duplicates_removed}")
+    print(f"- Prior records in database: {summary.prior_records}")
+    print(f"- Overlapping record numbers: {summary.overlapping_records}")
+    print(f"  - Unchanged: {summary.unchanged_records}")
+    print(f"  - Updated from scrape: {summary.updated_records}")
+    print(f"- New record numbers: {summary.new_records}")
+    print(f"- Prior records preserved (not in scrape): {summary.preserved_records}")
+    print("Finished record scrape")
+    print(f"- Rows written: {summary.total_written}")
+    print(f"- Output table: {SCRAPED_RECORDS_TABLE}")
