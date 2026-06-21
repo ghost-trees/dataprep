@@ -2,7 +2,7 @@ from pathlib import Path
 
 from db_helpers import read_table_df, seed_table
 
-from dataprep.pipelines.fees import pipeline as fees_pipeline
+from dataprep.pipelines.scrape_fees import pipeline as fees_pipeline
 from dataprep.shared.schema import GEOCODED_RECORDS_TABLE, SCRAPED_FEES_TABLE
 
 

@@ -4,10 +4,10 @@ from pathlib import Path
 
 from dataprep.pipelines.export_csv.pipeline import run as run_export_csv
 from dataprep.pipelines.export_geojson.pipeline import run as run_export_geojson
-from dataprep.pipelines.fees.pipeline import run as run_fees
-from dataprep.pipelines.geocode.pipeline import run as run_geocode
+from dataprep.pipelines.geocode_records.pipeline import run as run_geocode_records
 from dataprep.pipelines.parse_trees.pipeline import run as run_parse_trees
-from dataprep.pipelines.records.pipeline import run as run_records
+from dataprep.pipelines.scrape_fees.pipeline import run as run_scrape_fees
+from dataprep.pipelines.scrape_records.pipeline import run as run_scrape_records
 from dataprep.shared.db import DB_PATH, get_connection, init_db, write_table
 from dataprep.shared.exports import CSV_EXPORT_END, CSV_EXPORT_START
 from dataprep.shared.paths import DATA_GEOJSON_PATH
@@ -35,10 +35,10 @@ def run_pipeline(
     """
     print("Starting pipeline...")
     init_db(db_path)
-    run_records(db_path=db_path, headless=records_headless)
+    run_scrape_records(db_path=db_path, headless=records_headless)
     run_parse_trees(db_path=db_path)
-    run_geocode(db_path=db_path, workers=geocode_workers)
-    run_fees(
+    run_geocode_records(db_path=db_path, workers=geocode_workers)
+    run_scrape_fees(
         db_path=db_path,
         headless=fees_headless,
         limit=fees_limit,

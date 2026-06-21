@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from dataprep.pipelines.records.io import ingest_scraped_records_csv
+from dataprep.pipelines.scrape_records.io import ingest_scraped_records_csv
 from dataprep.shared.db import get_connection, write_table
 from dataprep.shared.schema import (
     SCRAPED_RECORDS_ACA_COLUMNS,

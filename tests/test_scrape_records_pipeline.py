@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from dataprep.pipelines.records.pipeline import (
+from dataprep.pipelines.scrape_records.pipeline import (
     _assert_unique_record_numbers,
     _deduplicate_exact_rows,
 )

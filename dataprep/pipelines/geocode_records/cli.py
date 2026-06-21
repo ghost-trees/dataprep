@@ -37,8 +37,8 @@ def parse_args() -> argparse.Namespace:
         ),
         epilog=(
             "Quickstart examples:\n"
-            "  uv run python -m dataprep.pipelines.geocode.cli\n"
-            "  uv run python -m dataprep.pipelines.geocode.cli --workers 4 --redo-all"
+            "  uv run python -m dataprep.pipelines.geocode_records.cli\n"
+            "  uv run python -m dataprep.pipelines.geocode_records.cli --workers 4 --redo-all"
         ),
         formatter_class=_HelpFormatter,
     )

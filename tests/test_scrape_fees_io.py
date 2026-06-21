@@ -2,7 +2,7 @@ from pathlib import Path
 
 from db_helpers import seed_table
 
-from dataprep.pipelines.fees.io import (
+from dataprep.pipelines.scrape_fees.io import (
     merge_rows_by_input_order,
     read_existing_results,
     read_record_numbers,

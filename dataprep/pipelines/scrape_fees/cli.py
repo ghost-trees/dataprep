@@ -32,8 +32,8 @@ def parse_args() -> argparse.Namespace:
         ),
         epilog=(
             "Quickstart examples:\n"
-            "  uv run python -m dataprep.pipelines.fees.cli\n"
-            "  uv run python -m dataprep.pipelines.fees.cli --workers 8 --limit 200"
+            "  uv run python -m dataprep.pipelines.scrape_fees.cli\n"
+            "  uv run python -m dataprep.pipelines.scrape_fees.cli --workers 8 --limit 200"
         ),
         formatter_class=_HelpFormatter,
     )

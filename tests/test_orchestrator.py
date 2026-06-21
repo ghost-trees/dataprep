@@ -19,7 +19,7 @@ def test_run_pipeline_executes_stages_in_order_and_writes_output(
     output_geojson_path = tmp_path / "data.geojson"
     call_order: list[str] = []
 
-    def fake_run_records(db_path: Path, headless: bool) -> Path:
+    def fake_run_scrape_records(db_path: Path, headless: bool) -> Path:
         call_order.append("records")
         seed_table(
             db_path,
@@ -40,7 +40,7 @@ def test_run_pipeline_executes_stages_in_order_and_writes_output(
         call_order.append("parse_trees")
         seed_table(db_path, PARSED_TREES_TABLE, [{"record_number": "R1", "tree_types": "oak"}])
 
-    def fake_run_geocode(db_path: Path, workers: int):
+    def fake_run_geocode_records(db_path: Path, workers: int):
         call_order.append("geocode")
         seed_table(
             db_path,
@@ -56,7 +56,7 @@ def test_run_pipeline_executes_stages_in_order_and_writes_output(
             ],
         )
 
-    def fake_run_fees(db_path: Path, headless: bool, limit: int | None, workers: int) -> Path:
+    def fake_run_scrape_fees(db_path: Path, headless: bool, limit: int | None, workers: int) -> Path:
         call_order.append("fees")
         seed_table(
             db_path,
@@ -83,10 +83,10 @@ def test_run_pipeline_executes_stages_in_order_and_writes_output(
         output_geojson_path.write_text("{}", encoding="utf-8")
         return output_geojson_path
 
-    monkeypatch.setattr(orchestrator, "run_records", fake_run_records)
-    monkeypatch.setattr(orchestrator, "run_geocode", fake_run_geocode)
+    monkeypatch.setattr(orchestrator, "run_scrape_records", fake_run_scrape_records)
+    monkeypatch.setattr(orchestrator, "run_geocode_records", fake_run_geocode_records)
     monkeypatch.setattr(orchestrator, "run_parse_trees", fake_run_parse_trees)
-    monkeypatch.setattr(orchestrator, "run_fees", fake_run_fees)
+    monkeypatch.setattr(orchestrator, "run_scrape_fees", fake_run_scrape_fees)
     monkeypatch.setattr(orchestrator, "run_export_csv", fake_run_export_csv)
     monkeypatch.setattr(orchestrator, "run_export_geojson", fake_run_export_geojson)
 

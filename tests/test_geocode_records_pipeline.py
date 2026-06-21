@@ -4,7 +4,7 @@ import pytest
 from db_helpers import seed_table
 from geopy.exc import GeocoderServiceError, GeocoderTimedOut
 
-from dataprep.pipelines.geocode import pipeline as geocode_pipeline
+from dataprep.pipelines.geocode_records import pipeline as geocode_pipeline
 from dataprep.shared.db import get_connection, table_exists
 from dataprep.shared.schema import GEOCODED_RECORDS_TABLE, SCRAPED_RECORDS_TABLE
 

@@ -24,8 +24,8 @@ def parse_args() -> argparse.Namespace:
         ),
         epilog=(
             "Quickstart examples:\n"
-            "  uv run python -m dataprep.pipelines.records.cli\n"
-            "  uv run python -m dataprep.pipelines.records.cli --headless "
+            "  uv run python -m dataprep.pipelines.scrape_records.cli\n"
+            "  uv run python -m dataprep.pipelines.scrape_records.cli --headless "
             "--start-date 01/01/2024 --end-date 12/31/2024"
         ),
         formatter_class=_HelpFormatter,
