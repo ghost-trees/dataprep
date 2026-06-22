@@ -16,6 +16,7 @@ from dataprep.shared.db import (
     read_table_if_exists,
     write_table,
 )
+from dataprep.shared.paths import GEOCODE_OVERRIDES_PATH
 from dataprep.shared.schema import (
     ADDRESS_COLUMN,
     GEOCODED_ADDRESS_COLUMN,
@@ -30,6 +31,7 @@ from dataprep.shared.schema import (
 
 GeocodeResult = tuple[float | None, float | None, str | None]
 ExistingGeocode = tuple[str | None, float, float, str | None]
+GeocodeOverride = tuple[float, float, str | None]
 
 
 def _build_geocode_failure_error(exc: Exception, *, context: str) -> RuntimeError:
@@ -241,22 +243,76 @@ def read_existing_successful_geocodes(
     return successful_by_record
 
 
+def read_geocode_overrides(
+    overrides_path: Path = GEOCODE_OVERRIDES_PATH,
+) -> dict[str, GeocodeOverride]:
+    """Read manual geocode fallbacks keyed by record number.
+
+    Overrides supply known coordinates for records that the geocoder cannot
+    resolve. They are applied only when a row has no successful geocode result.
+
+    Args:
+        overrides_path: Path to the overrides CSV.
+
+    Returns:
+        Mapping of record number to `(latitude, longitude, geocoded_address)`.
+        Empty when the file is absent.
+
+    Raises:
+        ValueError: If required columns are missing or a record number repeats.
+    """
+    if not overrides_path.exists():
+        return {}
+
+    overrides_df = pd.read_csv(overrides_path, dtype={RECORD_NUMBER_COLUMN: str})
+
+    required_columns = [RECORD_NUMBER_COLUMN, LATITUDE_COLUMN, LONGITUDE_COLUMN]
+    missing_columns = [column for column in required_columns if column not in overrides_df.columns]
+    if missing_columns:
+        raise ValueError(
+            f"Expected columns {required_columns} in '{overrides_path.as_posix()}', "
+            f"but missing: {missing_columns}. Found: {list(overrides_df.columns)}"
+        )
+
+    has_geocoded_address = GEOCODED_ADDRESS_COLUMN in overrides_df.columns
+    overrides_by_record: dict[str, GeocodeOverride] = {}
+    for row in overrides_df.itertuples(index=False):
+        record_number = getattr(row, RECORD_NUMBER_COLUMN)
+        latitude = getattr(row, LATITUDE_COLUMN)
+        longitude = getattr(row, LONGITUDE_COLUMN)
+        if pd.isna(record_number) or pd.isna(latitude) or pd.isna(longitude):
+            continue
+        record_key = str(record_number)
+        if record_key in overrides_by_record:
+            raise ValueError(
+                f"Duplicate record_number '{record_key}' in '{overrides_path.as_posix()}'."
+            )
+        geocoded_address = getattr(row, GEOCODED_ADDRESS_COLUMN) if has_geocoded_address else None
+        if pd.isna(geocoded_address):
+            geocoded_address = None
+        overrides_by_record[record_key] = (float(latitude), float(longitude), geocoded_address)
+    return overrides_by_record
+
+
 def run(
     db_path: Path = DEFAULT_DB_PATH,
     workers: int = 1,
     redo_all: bool = False,
+    overrides_path: Path = GEOCODE_OVERRIDES_PATH,
 ) -> pd.DataFrame:
     """Geocode addresses from the scraped_records table and write geocoded_records.
 
     The pipeline calls the external Nominatim service for pending addresses. By
     default, it reuses prior successful geocode rows from the existing
     ``geocoded_records`` table when record number and address are unchanged. Use
-    `redo_all=True` to force a full rerun.
+    `redo_all=True` to force a full rerun. Records that the geocoder cannot
+    resolve fall back to manual coordinates from ``overrides_path`` when present.
 
     Args:
         db_path: Path to the SQLite database.
         workers: Maximum worker process count for parallel geocoding.
         redo_all: When True, geocode all records regardless of prior output.
+        overrides_path: Path to the manual geocode overrides CSV.
 
     Returns:
         DataFrame containing geocode output columns in input order.
@@ -278,8 +334,14 @@ def run(
             )
 
         existing_successful = read_existing_successful_geocodes(connection)
+        overrides = read_geocode_overrides(overrides_path)
         return _geocode_dataframe(
-            connection, df, existing_successful, workers=workers, redo_all=redo_all
+            connection,
+            df,
+            existing_successful,
+            overrides,
+            workers=workers,
+            redo_all=redo_all,
         )
     finally:
         connection.close()
@@ -289,6 +351,7 @@ def _geocode_dataframe(
     connection: sqlite3.Connection,
     df: pd.DataFrame,
     existing_successful: dict[str, ExistingGeocode],
+    overrides: dict[str, GeocodeOverride],
     *,
     workers: int,
     redo_all: bool,
@@ -340,6 +403,18 @@ def _geocode_dataframe(
     else:
         print("No pending rows to geocode. Output already up to date.")
 
+    override_applied_count = 0
+    if overrides:
+        for row_index, row in enumerate(df.itertuples(index=False)):
+            latitude, longitude, _ = geocoded_results[row_index]
+            if latitude is not None and longitude is not None:
+                continue
+            record_number = getattr(row, RECORD_NUMBER_COLUMN)
+            override = overrides.get(str(record_number)) if not pd.isna(record_number) else None
+            if override is not None:
+                geocoded_results[row_index] = override
+                override_applied_count += 1
+
     df[LATITUDE_COLUMN] = [row[0] for row in geocoded_results]
     df[LONGITUDE_COLUMN] = [row[1] for row in geocoded_results]
     df[GEOCODED_ADDRESS_COLUMN] = [row[2] for row in geocoded_results]
@@ -359,5 +434,6 @@ def _geocode_dataframe(
     print(f"- Re-geocoded due to address changes: {reprocess_due_to_address_change}")
     print(f"- Geocoded this run: {geocoded_count}")
     print(f"- Not geocoded this run: {failed_this_run}")
+    print(f"- Overrides applied: {override_applied_count}")
     print(f"- Total successfully geocoded in output: {total_success}")
     return output_df

@@ -34,6 +34,7 @@ Thumbs.db
 
 # Project-generated artifacts
 data/*.csv
+!data/geocode_overrides.csv
 data/*.sqlite3
 data/*.sqlite3-wal
 data/*.sqlite3-shm

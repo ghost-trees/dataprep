@@ -9,6 +9,7 @@ DB_PATH = DATA_DIR / "dataprep.sqlite3"
 
 SCRAPED_RECORDS_PATH = DATA_DIR / "scraped_records.csv"
 GEOCODED_RECORDS_PATH = DATA_DIR / "geocoded_records.csv"
+GEOCODE_OVERRIDES_PATH = DATA_DIR / "geocode_overrides.csv"
 SCRAPED_FEES_PATH = DATA_DIR / "scraped_fees.csv"
 PARSED_TREES_PATH = DATA_DIR / "parsed_trees.csv"
 OUTPUT_PATH = DATA_DIR / "output.csv"
